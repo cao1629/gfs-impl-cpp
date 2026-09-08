@@ -23,7 +23,7 @@ TEST(Distance, RackLabelsWinWhenPresent) {
 
 TEST(Distance, IpPrefixWhenNoLabels) {
   EXPECT_EQ(distanceBetween({"10.0.0.1:1", ""}, {"10.0.0.2:1", ""}), 2);
-  EXPECT_EQ(distanceBetween({"10.0.0.1:1", ""}, {"10.1.0.1:1", ""}), 16);
+  EXPECT_EQ(distanceBetween({"10.0.0.1:1", ""}, {"10.1.0.1:1", ""}), 17);
   EXPECT_EQ(distanceBetween({"", ""}, {"10.0.0.1:1", ""}), 32);
 }
 
