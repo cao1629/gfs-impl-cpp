@@ -233,7 +233,7 @@ TEST(Cluster, MasterRestartKeepsMetadata) {
 }
 
 TEST(Cluster, CheckpointIsWrittenAndLoaded) {
-  LocalCluster cluster(3, {{"checkpoint_log_threshold", "2K"}});
+  LocalCluster cluster(3, {{"checkpoint_log_threshold", "1K"}});
   auto client = cluster.client();
   for (int i = 0; i < 80; ++i) {
     ASSERT_TRUE(client->create("/many/file" + std::to_string(i)).ok());
