@@ -21,6 +21,19 @@ const char* kUsage =
     "  write <path> [offset]\n"
     "  append <path>\n";
 
+const char* codeName(gfs::ErrorCode code) {
+  switch (code) {
+    case gfs::ErrorCode::kOk: return "ok";
+    case gfs::ErrorCode::kNotFound: return "not found";
+    case gfs::ErrorCode::kAlreadyExists: return "already exists";
+    case gfs::ErrorCode::kInvalidArgument: return "invalid argument";
+    case gfs::ErrorCode::kUnavailable: return "unavailable";
+    case gfs::ErrorCode::kStale: return "stale";
+    case gfs::ErrorCode::kFailed: return "failed";
+  }
+  return "failed";
+}
+
 int fail(const std::string& message) {
   std::cerr << message << std::endl;
   return 1;
@@ -41,7 +54,7 @@ std::string readStdin() {
 
 int check(const gfs::Status& status) {
   if (status.ok()) return 0;
-  return fail(status.message.empty() ? "failed" : status.message);
+  return fail(std::string(codeName(status.code)) + (status.message.empty() ? "" : ": " + status.message));
 }
 
 }
