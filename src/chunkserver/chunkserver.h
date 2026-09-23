@@ -1,5 +1,7 @@
 #pragma once
 
+#include <grpcpp/grpcpp.h>
+
 #include <condition_variable>
 #include <map>
 #include <memory>
@@ -8,8 +10,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-
-#include <grpcpp/grpcpp.h>
 
 #include "chunkserver/chunk_store.h"
 #include "chunkserver/data_buffer.h"
@@ -27,23 +27,28 @@ class Chunkserver {
   Chunkserver(const Chunkserver&) = delete;
   Chunkserver& operator=(const Chunkserver&) = delete;
 
-  rpc::PushDataResponse pushData(grpc::ServerReader<rpc::PushDataRequest>* reader);
-  rpc::ReadResponse read(const rpc::ReadRequest& req);
-  rpc::WriteResponse write(const rpc::WriteRequest& req);
-  rpc::RecordAppendResponse recordAppend(const rpc::RecordAppendRequest& req);
-  rpc::GetChunkLengthResponse getChunkLength(const rpc::GetChunkLengthRequest& req);
-  rpc::ApplyMutationResponse applyMutation(const rpc::ApplyMutationRequest& req);
-  rpc::CreateChunkResponse createChunk(const rpc::CreateChunkRequest& req);
-  rpc::GrantLeaseResponse grantLease(const rpc::GrantLeaseRequest& req);
-  rpc::RevokeLeaseResponse revokeLease(const rpc::RevokeLeaseRequest& req);
-  rpc::UpdateVersionResponse updateVersion(const rpc::UpdateVersionRequest& req);
+  rpc::PushDataResponse PushData(
+      grpc::ServerReader<rpc::PushDataRequest>* reader);
+  rpc::ReadResponse Read(const rpc::ReadRequest& req);
+  rpc::WriteResponse Write(const rpc::WriteRequest& req);
+  rpc::RecordAppendResponse RecordAppend(const rpc::RecordAppendRequest& req);
+  rpc::GetChunkLengthResponse GetChunkLength(
+      const rpc::GetChunkLengthRequest& req);
+  rpc::ApplyMutationResponse ApplyMutation(
+      const rpc::ApplyMutationRequest& req);
+  rpc::CreateChunkResponse CreateChunk(const rpc::CreateChunkRequest& req);
+  rpc::GrantLeaseResponse GrantLease(const rpc::GrantLeaseRequest& req);
+  rpc::RevokeLeaseResponse RevokeLease(const rpc::RevokeLeaseRequest& req);
+  rpc::UpdateVersionResponse UpdateVersion(
+      const rpc::UpdateVersionRequest& req);
 
-  void setAdvertiseAddress(std::string address);
-  void startHeartbeat();
-  void stop();
-  bool sendHeartbeat();
+  void SetAdvertiseAddress(std::string address);
+  void StartHeartbeat();
+  void Stop();
+  bool SendHeartbeat();
 
-  const std::string& id() const { return id_; }
+  const std::string& Id() const { return id_; }
+  // NOLINTNEXTLINE(readability-identifier-naming)
   const Config& config() const { return config_; }
 
  private:
@@ -52,10 +57,13 @@ class Chunkserver {
     LeaseInfo lease;
   };
 
-  rpc::ResultCode prepareMutation(uint64_t handle, uint64_t version, Prepared* out);
-  std::optional<std::string> forwardMutation(const rpc::ApplyMutationRequest& req, const std::vector<rpc::Replica>& secondaries);
-  rpc::Chunkserver::Stub* stubFor(const std::string& address);
-  void heartbeatLoop();
+  rpc::ResultCode PrepareMutation(uint64_t handle, uint64_t version,
+                                  Prepared* out);
+  std::optional<std::string> ForwardMutation(
+      const rpc::ApplyMutationRequest& req,
+      const std::vector<rpc::Replica>& secondaries);
+  rpc::Chunkserver::Stub* StubFor(const std::string& address);
+  void HeartbeatLoop();
 
   Config config_;
   std::string id_;
@@ -74,4 +82,4 @@ class Chunkserver {
   bool master_reachable_ = true;
 };
 
-}
+}  // namespace gfs

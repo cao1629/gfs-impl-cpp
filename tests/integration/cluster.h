@@ -1,11 +1,11 @@
 #pragma once
 
+#include <sys/types.h>
+
 #include <map>
 #include <memory>
 #include <string>
 #include <vector>
-
-#include <sys/types.h>
 
 #include "client/gfs_client.h"
 #include "gfs.grpc.pb.h"
@@ -14,29 +14,37 @@ namespace gfs::testing {
 
 class LocalCluster {
  public:
-  explicit LocalCluster(int chunkservers, std::map<std::string, std::string> overrides = {});
+  explicit LocalCluster(int chunkservers,
+                        std::map<std::string, std::string> overrides = {});
   ~LocalCluster();
 
   LocalCluster(const LocalCluster&) = delete;
   LocalCluster& operator=(const LocalCluster&) = delete;
 
-  Config clientConfig() const;
+  Config ClientConfig() const;
+  // NOLINTNEXTLINE(readability-identifier-naming)
   std::unique_ptr<Client> client() const;
-  std::unique_ptr<rpc::Master::Stub> masterStub() const;
+  std::unique_ptr<rpc::Master::Stub> MasterStub() const;
 
-  const std::string& masterAddress() const { return master_.address; }
-  const std::string& chunkserverAddress(int i) const { return chunkservers_[i].address; }
-  const std::string& chunkserverDataDir(int i) const { return chunkservers_[i].data_dir; }
-  const std::string& masterDataDir() const { return master_.data_dir; }
-  int chunkserverCount() const { return static_cast<int>(chunkservers_.size()); }
+  const std::string& MasterAddress() const { return master_.address; }
+  const std::string& ChunkserverAddress(int i) const {
+    return chunkservers_[i].address;
+  }
+  const std::string& ChunkserverDataDir(int i) const {
+    return chunkservers_[i].data_dir;
+  }
+  const std::string& MasterDataDir() const { return master_.data_dir; }
+  int ChunkserverCount() const {
+    return static_cast<int>(chunkservers_.size());
+  }
 
-  void killChunkserver(int i);
-  void restartChunkserver(int i);
-  void killMaster();
-  void restartMaster();
+  void KillChunkserver(int i);
+  void RestartChunkserver(int i);
+  void KillMaster();
+  void RestartMaster();
 
-  size_t chunkFilesOnDisk() const;
-  std::string flag(const std::string& key) const;
+  size_t ChunkFilesOnDisk() const;
+  std::string Flag(const std::string& key) const;
 
  private:
   struct Process {
@@ -47,10 +55,10 @@ class LocalCluster {
     std::string log_path;
   };
 
-  void spawnMaster();
-  void spawnChunkserver(int i);
-  void kill(Process* p);
-  std::vector<std::string> commonArgs() const;
+  void SpawnMaster();
+  void SpawnChunkserver(int i);
+  void Kill(Process* p);
+  std::vector<std::string> CommonArgs() const;
 
   std::string root_;
   std::map<std::string, std::string> flags_;
@@ -58,7 +66,7 @@ class LocalCluster {
   std::vector<Process> chunkservers_;
 };
 
-std::string freePort();
-void sleepMs(int64_t ms);
+std::string FreePort();
+void SleepMs(int64_t ms);
 
-}
+}  // namespace gfs::testing

@@ -7,7 +7,7 @@ namespace gfs {
 
 enum class LogLevel { kInfo, kWarn, kError };
 
-void setLogTag(const std::string& tag);
+void SetLogTag(const std::string& tag);
 
 class LogLine {
  public:
@@ -24,7 +24,7 @@ class LogLine {
   std::ostringstream stream_;
 };
 
-}
+}  // namespace gfs
 
 #define GFS_LOG_INFO ::gfs::LogLine(::gfs::LogLevel::kInfo)
 #define GFS_LOG_WARN ::gfs::LogLine(::gfs::LogLevel::kWarn)

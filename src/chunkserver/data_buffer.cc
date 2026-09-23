@@ -4,7 +4,7 @@ namespace gfs {
 
 DataBuffer::DataBuffer(uint64_t capacity) : capacity_(capacity) {}
 
-void DataBuffer::put(BufferKey key, std::string data) {
+void DataBuffer::Put(BufferKey key, std::string data) {
   std::lock_guard<std::mutex> lock(mutex_);
   auto existing = index_.find(key);
   if (existing != index_.end()) {
@@ -23,7 +23,7 @@ void DataBuffer::put(BufferKey key, std::string data) {
   index_[lru_.front().first] = lru_.begin();
 }
 
-std::optional<std::string> DataBuffer::take(const BufferKey& key) {
+std::optional<std::string> DataBuffer::Take(const BufferKey& key) {
   std::lock_guard<std::mutex> lock(mutex_);
   auto it = index_.find(key);
   if (it == index_.end()) return std::nullopt;
@@ -34,21 +34,21 @@ std::optional<std::string> DataBuffer::take(const BufferKey& key) {
   return data;
 }
 
-std::optional<uint64_t> DataBuffer::sizeOf(const BufferKey& key) {
+std::optional<uint64_t> DataBuffer::SizeOf(const BufferKey& key) {
   std::lock_guard<std::mutex> lock(mutex_);
   auto it = index_.find(key);
   if (it == index_.end()) return std::nullopt;
   return it->second->second.size();
 }
 
-uint64_t DataBuffer::bytesInUse() {
+uint64_t DataBuffer::BytesInUse() {
   std::lock_guard<std::mutex> lock(mutex_);
   return used_;
 }
 
-size_t DataBuffer::entryCount() {
+size_t DataBuffer::EntryCount() {
   std::lock_guard<std::mutex> lock(mutex_);
   return lru_.size();
 }
 
-}
+}  // namespace gfs

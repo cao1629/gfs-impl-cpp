@@ -44,16 +44,17 @@ struct Config {
   std::string master_address = "127.0.0.1:7000";
   std::string data_dir;
 
-  uint64_t effectiveMaxRecordAppendSize() const;
-  Millis effectiveOuterRetryDelay() const;
-  std::string effectiveAdvertise() const;
+  uint64_t EffectiveMaxRecordAppendSize() const;
+  Millis EffectiveOuterRetryDelay() const;
+  std::string EffectiveAdvertise() const;
 
-  static Config fromArgs(int argc, char** argv);
-  static bool set(Config& config, const std::string& key, const std::string& value);
-  static std::string usage();
+  static Config FromArgs(int argc, char** argv);
+  static bool Set(Config& config, const std::string& key,
+                  const std::string& value);
+  static std::string Usage();
 };
 
-bool parseDuration(const std::string& text, Millis* out);
-bool parseSize(const std::string& text, uint64_t* out);
+bool ParseDuration(const std::string& text, Millis* out);
+bool ParseSize(const std::string& text, uint64_t* out);
 
-}
+}  // namespace gfs

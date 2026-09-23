@@ -5,7 +5,7 @@
 
 namespace gfs {
 
-std::string randomHexId(size_t bytes) {
+std::string RandomHexId(size_t bytes) {
   static const char* digits = "0123456789abcdef";
   std::random_device rd;
   std::string out;
@@ -18,7 +18,7 @@ std::string randomHexId(size_t bytes) {
   return out;
 }
 
-std::string handleToHex(uint64_t handle) {
+std::string HandleToHex(uint64_t handle) {
   static const char* digits = "0123456789abcdef";
   std::string out(16, '0');
   for (int i = 15; i >= 0; --i) {
@@ -28,13 +28,14 @@ std::string handleToHex(uint64_t handle) {
   return out;
 }
 
-bool hexToHandle(const std::string& text, uint64_t* handle) {
+bool HexToHandle(const std::string& text, uint64_t* handle) {
   if (text.size() != 16) return false;
   uint64_t value = 0;
-  auto [ptr, ec] = std::from_chars(text.data(), text.data() + text.size(), value, 16);
+  auto [ptr, ec] =
+      std::from_chars(text.data(), text.data() + text.size(), value, 16);
   if (ec != std::errc() || ptr != text.data() + text.size()) return false;
   *handle = value;
   return true;
 }
 
-}
+}  // namespace gfs

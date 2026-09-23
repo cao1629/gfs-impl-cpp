@@ -34,32 +34,33 @@ class ExpiringCache {
  public:
   explicit ExpiringCache(Millis ttl) : ttl_(ttl) {}
 
-  std::optional<Entry> get(const std::string& path, uint64_t index) {
+  std::optional<Entry> Get(const std::string& path, uint64_t index) {
     std::lock_guard<std::mutex> lock(mu_);
     auto it = entries_.find({path, index});
     if (it == entries_.end()) return std::nullopt;
-    if (it->second.expiry <= now()) {
+    if (it->second.expiry <= Now()) {
       entries_.erase(it);
       return std::nullopt;
     }
     return it->second;
   }
 
-  void put(const std::string& path, uint64_t index, Entry entry) {
-    entry.expiry = now() + ttl_;
+  void Put(const std::string& path, uint64_t index, Entry entry) {
+    entry.expiry = Now() + ttl_;
     std::lock_guard<std::mutex> lock(mu_);
     entries_[{path, index}] = std::move(entry);
   }
 
-  void invalidate(const std::string& path, uint64_t index) {
+  void Invalidate(const std::string& path, uint64_t index) {
     std::lock_guard<std::mutex> lock(mu_);
     entries_.erase({path, index});
   }
 
-  void invalidateFile(const std::string& path) {
+  void InvalidateFile(const std::string& path) {
     std::lock_guard<std::mutex> lock(mu_);
     auto it = entries_.lower_bound({path, 0});
-    while (it != entries_.end() && it->first.first == path) it = entries_.erase(it);
+    while (it != entries_.end() && it->first.first == path)
+      it = entries_.erase(it);
   }
 
  private:
@@ -71,4 +72,4 @@ class ExpiringCache {
 using LocationCache = ExpiringCache<CachedChunk>;
 using LeaseCache = ExpiringCache<CachedLease>;
 
-}
+}  // namespace gfs

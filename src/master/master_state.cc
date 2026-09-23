@@ -7,99 +7,134 @@
 
 namespace gfs {
 
-void MasterState::applyCreate(const std::string& path) { files.insert(path, FileMeta{}); }
-
-void MasterState::applyRename(const std::string& source, const std::string& target) {
-  if (!files.exists(source) && !files.isDirectory(source)) return;
-  files.renameSubtree(source, target);
+void MasterState::ApplyCreate(const std::string& path) {
+  files.Insert(path, FileMeta{});
 }
 
-void MasterState::applyRemove(const std::string& path) {
-  FileMeta* meta = files.find(path);
+void MasterState::ApplyRename(const std::string& source,
+                              const std::string& target) {
+  if (!files.Exists(source) && !files.IsDirectory(source)) return;
+  files.RenameSubtree(source, target);
+}
+
+void MasterState::ApplyRemove(const std::string& path) {
+  FileMeta* meta = files.Find(path);
   if (meta == nullptr) return;
   for (uint64_t handle : meta->chunks) {
-    ChunkMeta* chunk = chunks.find(handle);
+    ChunkMeta* chunk = chunks.Find(handle);
     if (chunk != nullptr && chunk->refcount > 0) chunk->refcount -= 1;
   }
-  files.erase(path);
+  files.Erase(path);
 }
 
-void MasterState::applyAllocHandle(uint64_t handle) { next_handle = std::max(next_handle, handle + 1); }
+void MasterState::ApplyAllocHandle(uint64_t handle) {
+  next_handle = std::max(next_handle, handle + 1);
+}
 
-void MasterState::applyAddChunk(const std::string& path, uint64_t index, uint64_t handle) {
-  FileMeta* meta = files.find(path);
+void MasterState::ApplyAddChunk(const std::string& path, uint64_t index,
+                                uint64_t handle) {
+  FileMeta* meta = files.Find(path);
   if (meta == nullptr) return;
   if (index < meta->chunks.size()) {
     if (meta->chunks[index] == handle) return;
-    applyReplaceChunk(path, index, handle);
+    ApplyReplaceChunk(path, index, handle);
     return;
   }
   if (index != meta->chunks.size()) return;
   meta->chunks.push_back(handle);
-  ChunkMeta& chunk = chunks.create(handle, 1);
+  ChunkMeta& chunk = chunks.Create(handle, 1);
   chunk.pending = false;
   chunk.refcount += 1;
-  applyAllocHandle(handle);
+  ApplyAllocHandle(handle);
 }
 
-void MasterState::applyReplaceChunk(const std::string& path, uint64_t index, uint64_t handle) {
-  FileMeta* meta = files.find(path);
+void MasterState::ApplyReplaceChunk(const std::string& path, uint64_t index,
+                                    uint64_t handle) {
+  FileMeta* meta = files.Find(path);
   if (meta == nullptr || index >= meta->chunks.size()) return;
   uint64_t old = meta->chunks[index];
   if (old == handle) return;
-  ChunkMeta* previous = chunks.find(old);
+  ChunkMeta* previous = chunks.Find(old);
   if (previous != nullptr && previous->refcount > 0) previous->refcount -= 1;
   meta->chunks[index] = handle;
-  ChunkMeta& chunk = chunks.create(handle, 1);
+  ChunkMeta& chunk = chunks.Create(handle, 1);
   chunk.pending = false;
   chunk.refcount += 1;
-  applyAllocHandle(handle);
+  ApplyAllocHandle(handle);
 }
 
-void MasterState::applyBumpVersion(uint64_t handle, uint64_t version) {
-  ChunkMeta* chunk = chunks.find(handle);
+void MasterState::ApplyBumpVersion(uint64_t handle, uint64_t version) {
+  ChunkMeta* chunk = chunks.Find(handle);
   if (chunk == nullptr) return;
   chunk->version = std::max(chunk->version, version);
 }
 
-void MasterState::applySnapshot(const std::string& source, const std::string& target) {
-  for (auto& [path, meta] : files.subtree(source, true)) {
-    std::string copied = path == source ? target : childPrefix(target) + path.substr(childPrefix(source).size());
-    if (files.exists(copied)) continue;
+void MasterState::ApplySnapshot(const std::string& source,
+                                const std::string& target) {
+  for (auto& [path, meta] : files.Subtree(source, true)) {
+    std::string copied =
+        path == source
+            ? target
+            : ChildPrefix(target) + path.substr(ChildPrefix(source).size());
+    if (files.Exists(copied)) continue;
     for (uint64_t handle : meta.chunks) {
-      ChunkMeta* chunk = chunks.find(handle);
+      ChunkMeta* chunk = chunks.Find(handle);
       if (chunk != nullptr) chunk->refcount += 1;
     }
-    files.insert(copied, meta);
+    files.Insert(copied, meta);
   }
 }
 
-void MasterState::applyDropChunk(uint64_t handle) { chunks.erase(handle); }
+void MasterState::ApplyDropChunk(uint64_t handle) { chunks.Erase(handle); }
 
-void MasterState::apply(const state::LogRecord& record) {
+void MasterState::Apply(const state::LogRecord& record) {
   switch (record.body_case()) {
-    case state::LogRecord::kCreate: applyCreate(record.create().path()); break;
-    case state::LogRecord::kRename: applyRename(record.rename().source(), record.rename().target()); break;
-    case state::LogRecord::kRemove: applyRemove(record.remove().path()); break;
-    case state::LogRecord::kAllocHandle: applyAllocHandle(record.alloc_handle().handle()); break;
-    case state::LogRecord::kAddChunk: applyAddChunk(record.add_chunk().path(), record.add_chunk().index(), record.add_chunk().handle()); break;
-    case state::LogRecord::kReplaceChunk: applyReplaceChunk(record.replace_chunk().path(), record.replace_chunk().index(), record.replace_chunk().handle()); break;
-    case state::LogRecord::kBumpVersion: applyBumpVersion(record.bump_version().handle(), record.bump_version().version()); break;
-    case state::LogRecord::kSnapshot: applySnapshot(record.snapshot().source(), record.snapshot().target()); break;
-    case state::LogRecord::kDropChunk: applyDropChunk(record.drop_chunk().handle()); break;
-    case state::LogRecord::BODY_NOT_SET: GFS_LOG_WARN << "log record without a body"; break;
+    case state::LogRecord::kCreate:
+      ApplyCreate(record.create().path());
+      break;
+    case state::LogRecord::kRename:
+      ApplyRename(record.rename().source(), record.rename().target());
+      break;
+    case state::LogRecord::kRemove:
+      ApplyRemove(record.remove().path());
+      break;
+    case state::LogRecord::kAllocHandle:
+      ApplyAllocHandle(record.alloc_handle().handle());
+      break;
+    case state::LogRecord::kAddChunk:
+      ApplyAddChunk(record.add_chunk().path(), record.add_chunk().index(),
+                    record.add_chunk().handle());
+      break;
+    case state::LogRecord::kReplaceChunk:
+      ApplyReplaceChunk(record.replace_chunk().path(),
+                        record.replace_chunk().index(),
+                        record.replace_chunk().handle());
+      break;
+    case state::LogRecord::kBumpVersion:
+      ApplyBumpVersion(record.bump_version().handle(),
+                       record.bump_version().version());
+      break;
+    case state::LogRecord::kSnapshot:
+      ApplySnapshot(record.snapshot().source(), record.snapshot().target());
+      break;
+    case state::LogRecord::kDropChunk:
+      ApplyDropChunk(record.drop_chunk().handle());
+      break;
+    case state::LogRecord::BODY_NOT_SET:
+      GFS_LOG_WARN << "log record without a body";
+      break;
   }
 }
 
-state::Checkpoint MasterState::toCheckpoint() const {
+state::Checkpoint MasterState::ToCheckpoint() const {
   state::Checkpoint checkpoint;
   checkpoint.set_next_chunk_handle(next_handle);
-  files.forEach([&](const std::string& path, const FileMeta& meta) {
+  files.ForEach([&](const std::string& path, const FileMeta& meta) {
     state::FileEntry* entry = checkpoint.add_files();
     entry->set_path(path);
     for (uint64_t handle : meta.chunks) entry->add_chunk_handles(handle);
   });
-  chunks.forEach([&](uint64_t handle, const ChunkMeta& meta) {
+  chunks.ForEach([&](uint64_t handle, const ChunkMeta& meta) {
     if (meta.pending) return;
     state::ChunkEntry* entry = checkpoint.add_chunks();
     entry->set_handle(handle);
@@ -108,30 +143,30 @@ state::Checkpoint MasterState::toCheckpoint() const {
   return checkpoint;
 }
 
-void MasterState::load(const state::Checkpoint& checkpoint) {
-  files.clear();
-  chunks.clear();
+void MasterState::Load(const state::Checkpoint& checkpoint) {
+  files.Clear();
+  chunks.Clear();
   next_handle = std::max<uint64_t>(1, checkpoint.next_chunk_handle());
   for (const auto& entry : checkpoint.files()) {
     FileMeta meta;
     for (uint64_t handle : entry.chunk_handles()) meta.chunks.push_back(handle);
-    files.insert(entry.path(), std::move(meta));
+    files.Insert(entry.path(), std::move(meta));
   }
   for (const auto& entry : checkpoint.chunks()) {
-    chunks.create(entry.handle(), entry.version());
-    applyAllocHandle(entry.handle());
+    chunks.Create(entry.handle(), entry.version());
+    ApplyAllocHandle(entry.handle());
   }
 }
 
-void MasterState::recomputeRefcounts() {
-  chunks.forEach([](uint64_t, ChunkMeta& meta) { meta.refcount = 0; });
-  files.forEach([&](const std::string&, const FileMeta& meta) {
+void MasterState::RecomputeRefcounts() {
+  chunks.ForEach([](uint64_t, ChunkMeta& meta) { meta.refcount = 0; });
+  files.ForEach([&](const std::string&, const FileMeta& meta) {
     for (uint64_t handle : meta.chunks) {
-      ChunkMeta& chunk = chunks.create(handle, 1);
+      ChunkMeta& chunk = chunks.Create(handle, 1);
       chunk.refcount += 1;
-      applyAllocHandle(handle);
+      ApplyAllocHandle(handle);
     }
   });
 }
 
-}
+}  // namespace gfs

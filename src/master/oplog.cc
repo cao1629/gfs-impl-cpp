@@ -24,12 +24,12 @@ LocalFileSink::~LocalFileSink() {
   if (fd_ >= 0) ::close(fd_);
 }
 
-bool LocalFileSink::openSegment(uint64_t number) {
+bool LocalFileSink::OpenSegment(uint64_t number) {
   if (fd_ >= 0) {
     ::fsync(fd_);
     ::close(fd_);
   }
-  std::string path = OpLog::segmentPath(dir_, number);
+  std::string path = OpLog::SegmentPath(dir_, number);
   fd_ = ::open(path.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
   if (fd_ < 0) {
     GFS_LOG_ERROR << "cannot open log segment " << path;
@@ -40,7 +40,7 @@ bool LocalFileSink::openSegment(uint64_t number) {
   return true;
 }
 
-bool LocalFileSink::write(std::string_view bytes) {
+bool LocalFileSink::Write(std::string_view bytes) {
   size_t done = 0;
   while (done < bytes.size()) {
     ssize_t n = ::write(fd_, bytes.data() + done, bytes.size() - done);
@@ -51,27 +51,30 @@ bool LocalFileSink::write(std::string_view bytes) {
   return true;
 }
 
-bool LocalFileSink::sync() { return ::fsync(fd_) == 0; }
+bool LocalFileSink::Sync() { return ::fsync(fd_) == 0; }
 
-OpLog::OpLog(const Config& config, std::mutex& state_mutex) : config_(config), state_mutex_(state_mutex) {}
+OpLog::OpLog(const Config& config, std::mutex& state_mutex)
+    : config_(config), state_mutex_(state_mutex) {}
 
-OpLog::~OpLog() { stop(); }
+OpLog::~OpLog() { Stop(); }
 
-void OpLog::addSink(std::unique_ptr<LogSink> sink) { sinks_.push_back(std::move(sink)); }
+void OpLog::AddSink(std::unique_ptr<LogSink> sink) {
+  sinks_.push_back(std::move(sink));
+}
 
-void OpLog::enableCheckpoints(std::string dir, SnapshotFn snapshot) {
+void OpLog::EnableCheckpoints(std::string dir, SnapshotFn snapshot) {
   checkpoint_dir_ = std::move(dir);
   snapshot_ = std::move(snapshot);
 }
 
-void OpLog::open(uint64_t segment) {
+void OpLog::Open(uint64_t segment) {
   segment_ = segment;
-  for (auto& sink : sinks_) sink->openSegment(segment);
+  for (auto& sink : sinks_) sink->OpenSegment(segment);
   started_ = true;
-  flusher_ = std::thread([this] { run(); });
+  flusher_ = std::thread([this] { Run(); });
 }
 
-void OpLog::stop() {
+void OpLog::Stop() {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (stopping_) return;
@@ -80,28 +83,29 @@ void OpLog::stop() {
   pending_cv_.notify_all();
   if (flusher_.joinable()) flusher_.join();
   if (checkpoint_writer_.joinable()) checkpoint_writer_.join();
-  for (auto& sink : sinks_) sink->sync();
+  for (auto& sink : sinks_) sink->Sync();
 }
 
-uint64_t OpLog::append(const state::LogRecord& record) {
+uint64_t OpLog::Append(const state::LogRecord& record) {
   std::string payload;
-  if (!record.SerializeToString(&payload)) GFS_LOG_ERROR << "could not serialize a log record";
+  if (!record.SerializeToString(&payload))
+    GFS_LOG_ERROR << "could not serialize a log record";
   uint64_t seq = 0;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     seq = next_seq_++;
-    pending_.emplace_back(seq, encodeRecord(payload));
+    pending_.emplace_back(seq, EncodeRecord(payload));
   }
   pending_cv_.notify_one();
   return seq;
 }
 
-void OpLog::waitFlushed(uint64_t seq) {
+void OpLog::WaitFlushed(uint64_t seq) {
   std::unique_lock<std::mutex> lock(mutex_);
   flushed_cv_.wait(lock, [&] { return flushed_seq_ >= seq || stopping_; });
 }
 
-void OpLog::run() {
+void OpLog::Run() {
   while (true) {
     std::vector<std::string> batch;
     uint64_t last_seq = 0;
@@ -110,7 +114,9 @@ void OpLog::run() {
       pending_cv_.wait(lock, [&] { return stopping_ || !pending_.empty(); });
       if (pending_.empty() && stopping_) return;
       if (pending_.size() < config_.log_flush_batch_size) {
-        pending_cv_.wait_for(lock, config_.log_flush_max_delay, [&] { return stopping_ || pending_.size() >= config_.log_flush_batch_size; });
+        pending_cv_.wait_for(lock, config_.log_flush_max_delay, [&] {
+          return stopping_ || pending_.size() >= config_.log_flush_batch_size;
+        });
       }
       for (auto& [seq, bytes] : pending_) {
         batch.push_back(std::move(bytes));
@@ -118,17 +124,20 @@ void OpLog::run() {
       }
       pending_.clear();
     }
-    writeBatch(batch, last_seq);
-    if (!checkpoint_dir_.empty() && !sinks_.empty() && sinks_.front()->size() >= config_.checkpoint_log_threshold) rotate();
+    WriteBatch(batch, last_seq);
+    if (!checkpoint_dir_.empty() && !sinks_.empty() &&
+        sinks_.front()->Size() >= config_.checkpoint_log_threshold)
+      Rotate();
   }
 }
 
-void OpLog::writeBatch(std::vector<std::string>& batch, uint64_t last_seq) {
+void OpLog::WriteBatch(std::vector<std::string>& batch, uint64_t last_seq) {
   if (batch.empty()) return;
   std::string joined;
   for (auto& bytes : batch) joined += bytes;
   for (auto& sink : sinks_) {
-    if (!sink->write(joined) || !sink->sync()) GFS_LOG_ERROR << "log sink write failed";
+    if (!sink->Write(joined) || !sink->Sync())
+      GFS_LOG_ERROR << "log sink write failed";
   }
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -137,7 +146,7 @@ void OpLog::writeBatch(std::vector<std::string>& batch, uint64_t last_seq) {
   flushed_cv_.notify_all();
 }
 
-void OpLog::rotate() {
+void OpLog::Rotate() {
   state::Checkpoint checkpoint;
   uint64_t new_segment = 0;
   {
@@ -152,26 +161,29 @@ void OpLog::rotate() {
       }
       pending_.clear();
     }
-    writeBatch(batch, last_seq);
+    WriteBatch(batch, last_seq);
     checkpoint = snapshot_();
     new_segment = segment_ + 1;
-    for (auto& sink : sinks_) sink->openSegment(new_segment);
+    for (auto& sink : sinks_) sink->OpenSegment(new_segment);
     segment_ = new_segment;
   }
   if (checkpoint_writer_.joinable()) checkpoint_writer_.join();
   std::string dir = checkpoint_dir_;
-  checkpoint_writer_ = std::thread([dir, new_segment, checkpoint = std::move(checkpoint)] {
-    if (Checkpointer::write(dir, new_segment, checkpoint)) Checkpointer::prune(dir, new_segment, 2);
-  });
+  checkpoint_writer_ =
+      std::thread([dir, new_segment, checkpoint = std::move(checkpoint)] {
+        if (Checkpointer::Write(dir, new_segment, checkpoint))
+          Checkpointer::Prune(dir, new_segment, 2);
+      });
 }
 
-std::string OpLog::segmentPath(const std::string& dir, uint64_t number) {
+std::string OpLog::SegmentPath(const std::string& dir, uint64_t number) {
   char buf[32];
-  std::snprintf(buf, sizeof(buf), "oplog.%06llu", static_cast<unsigned long long>(number));
+  std::snprintf(buf, sizeof(buf), "oplog.%06llu",
+                static_cast<unsigned long long>(number));
   return dir + "/" + buf;
 }
 
-std::vector<uint64_t> OpLog::listSegments(const std::string& dir) {
+std::vector<uint64_t> OpLog::ListSegments(const std::string& dir) {
   std::vector<uint64_t> numbers;
   std::error_code ec;
   for (const auto& entry : fs::directory_iterator(dir, ec)) {
@@ -189,26 +201,29 @@ std::vector<uint64_t> OpLog::listSegments(const std::string& dir) {
   return numbers;
 }
 
-ReplayedSegment OpLog::readSegment(const std::string& dir, uint64_t number) {
+ReplayedSegment OpLog::ReadSegment(const std::string& dir, uint64_t number) {
   ReplayedSegment out;
   out.number = number;
-  std::ifstream in(segmentPath(dir, number), std::ios::binary);
+  std::ifstream in(SegmentPath(dir, number), std::ios::binary);
   std::stringstream buffer;
   buffer << in.rdbuf();
   std::string bytes = buffer.str();
-  DecodedRecords decoded = decodeRecords(bytes);
+  DecodedRecords decoded = DecodeRecords(bytes);
   out.torn_tail = decoded.torn_tail;
   out.valid_bytes = decoded.consumed;
   for (const auto& payload : decoded.payloads) {
     state::LogRecord record;
-    if (record.ParseFromString(payload)) out.records.push_back(std::move(record));
+    if (record.ParseFromString(payload))
+      out.records.push_back(std::move(record));
   }
   return out;
 }
 
-void OpLog::truncateSegment(const std::string& dir, uint64_t number, size_t bytes) {
-  std::string path = segmentPath(dir, number);
-  if (::truncate(path.c_str(), static_cast<off_t>(bytes)) != 0) GFS_LOG_WARN << "could not truncate " << path;
+void OpLog::TruncateSegment(const std::string& dir, uint64_t number,
+                            size_t bytes) {
+  std::string path = SegmentPath(dir, number);
+  if (::truncate(path.c_str(), static_cast<off_t>(bytes)) != 0)
+    GFS_LOG_WARN << "could not truncate " << path;
 }
 
-}
+}  // namespace gfs

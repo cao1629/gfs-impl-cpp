@@ -9,7 +9,7 @@ namespace gfs {
 
 constexpr size_t kFrameHeaderSize = 8;
 
-std::string encodeRecord(std::string_view payload);
+std::string EncodeRecord(std::string_view payload);
 
 struct DecodedRecords {
   std::vector<std::string> payloads;
@@ -17,6 +17,6 @@ struct DecodedRecords {
   bool torn_tail = false;
 };
 
-DecodedRecords decodeRecords(std::string_view bytes);
+DecodedRecords DecodeRecords(std::string_view bytes);
 
-}
+}  // namespace gfs
