@@ -3,12 +3,12 @@
 namespace gfs {
 
 WorkerPool::WorkerPool(size_t threads) {
-  for (size_t i = 0; i < threads; ++i) threads_.emplace_back([this] { run(); });
+  for (size_t i = 0; i < threads; ++i) threads_.emplace_back([this] { Run(); });
 }
 
-WorkerPool::~WorkerPool() { stop(); }
+WorkerPool::~WorkerPool() { Stop(); }
 
-void WorkerPool::post(std::function<void()> task) {
+void WorkerPool::Post(std::function<void()> task) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (stopping_) return;
@@ -17,7 +17,7 @@ void WorkerPool::post(std::function<void()> task) {
   cv_.notify_one();
 }
 
-void WorkerPool::stop() {
+void WorkerPool::Stop() {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (stopping_) return;
@@ -29,7 +29,7 @@ void WorkerPool::stop() {
   }
 }
 
-void WorkerPool::run() {
+void WorkerPool::Run() {
   while (true) {
     std::function<void()> task;
     {
@@ -43,4 +43,4 @@ void WorkerPool::run() {
   }
 }
 
-}
+}  // namespace gfs

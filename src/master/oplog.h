@@ -19,10 +19,10 @@ namespace gfs {
 class LogSink {
  public:
   virtual ~LogSink() = default;
-  virtual bool openSegment(uint64_t number) = 0;
-  virtual bool write(std::string_view bytes) = 0;
-  virtual bool sync() = 0;
-  virtual uint64_t size() const = 0;
+  virtual bool OpenSegment(uint64_t number) = 0;
+  virtual bool Write(std::string_view bytes) = 0;
+  virtual bool Sync() = 0;
+  virtual uint64_t Size() const = 0;
 };
 
 class LocalFileSink : public LogSink {
@@ -30,10 +30,10 @@ class LocalFileSink : public LogSink {
   explicit LocalFileSink(std::string dir);
   ~LocalFileSink() override;
 
-  bool openSegment(uint64_t number) override;
-  bool write(std::string_view bytes) override;
-  bool sync() override;
-  uint64_t size() const override { return size_; }
+  bool OpenSegment(uint64_t number) override;
+  bool Write(std::string_view bytes) override;
+  bool Sync() override;
+  uint64_t Size() const override { return size_; }
 
  private:
   std::string dir_;
@@ -55,24 +55,25 @@ class OpLog {
   OpLog(const Config& config, std::mutex& state_mutex);
   ~OpLog();
 
-  void addSink(std::unique_ptr<LogSink> sink);
-  void enableCheckpoints(std::string dir, SnapshotFn snapshot);
-  void open(uint64_t segment);
-  void stop();
+  void AddSink(std::unique_ptr<LogSink> sink);
+  void EnableCheckpoints(std::string dir, SnapshotFn snapshot);
+  void Open(uint64_t segment);
+  void Stop();
 
-  uint64_t append(const state::LogRecord& record);
-  void waitFlushed(uint64_t seq);
-  uint64_t segment() const { return segment_; }
+  uint64_t Append(const state::LogRecord& record);
+  void WaitFlushed(uint64_t seq);
+  uint64_t Segment() const { return segment_; }
 
-  static std::string segmentPath(const std::string& dir, uint64_t number);
-  static std::vector<uint64_t> listSegments(const std::string& dir);
-  static ReplayedSegment readSegment(const std::string& dir, uint64_t number);
-  static void truncateSegment(const std::string& dir, uint64_t number, size_t bytes);
+  static std::string SegmentPath(const std::string& dir, uint64_t number);
+  static std::vector<uint64_t> ListSegments(const std::string& dir);
+  static ReplayedSegment ReadSegment(const std::string& dir, uint64_t number);
+  static void TruncateSegment(const std::string& dir, uint64_t number,
+                              size_t bytes);
 
  private:
-  void run();
-  void writeBatch(std::vector<std::string>& batch, uint64_t last_seq);
-  void rotate();
+  void Run();
+  void WriteBatch(std::vector<std::string>& batch, uint64_t last_seq);
+  void Rotate();
 
   const Config& config_;
   std::mutex& state_mutex_;
@@ -93,4 +94,4 @@ class OpLog {
   std::thread checkpoint_writer_;
 };
 
-}
+}  // namespace gfs

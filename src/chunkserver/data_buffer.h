@@ -21,7 +21,8 @@ struct BufferKey {
 
 struct BufferKeyHash {
   size_t operator()(const BufferKey& key) const {
-    return std::hash<std::string>()(key.client_id) ^ (std::hash<uint64_t>()(key.sequence) * 1099511628211ull);
+    return std::hash<std::string>()(key.client_id) ^
+           (std::hash<uint64_t>()(key.sequence) * 1099511628211ull);
   }
 };
 
@@ -29,11 +30,11 @@ class DataBuffer {
  public:
   explicit DataBuffer(uint64_t capacity);
 
-  void put(BufferKey key, std::string data);
-  std::optional<std::string> take(const BufferKey& key);
-  std::optional<uint64_t> sizeOf(const BufferKey& key);
-  uint64_t bytesInUse();
-  size_t entryCount();
+  void Put(BufferKey key, std::string data);
+  std::optional<std::string> Take(const BufferKey& key);
+  std::optional<uint64_t> SizeOf(const BufferKey& key);
+  uint64_t BytesInUse();
+  size_t EntryCount();
 
  private:
   using Entry = std::pair<BufferKey, std::string>;
@@ -42,7 +43,8 @@ class DataBuffer {
   uint64_t capacity_;
   uint64_t used_ = 0;
   std::list<Entry> lru_;
-  std::unordered_map<BufferKey, std::list<Entry>::iterator, BufferKeyHash> index_;
+  std::unordered_map<BufferKey, std::list<Entry>::iterator, BufferKeyHash>
+      index_;
 };
 
-}
+}  // namespace gfs

@@ -17,12 +17,12 @@ class TimerQueue {
   explicit TimerQueue(WorkerPool& pool);
   ~TimerQueue();
 
-  void at(TimePoint when, std::function<void()> fn);
-  void after(Millis delay, std::function<void()> fn);
-  void stop();
+  void At(TimePoint when, std::function<void()> fn);
+  void After(Millis delay, std::function<void()> fn);
+  void Stop();
 
  private:
-  void run();
+  void Run();
 
   WorkerPool& pool_;
   std::mutex mutex_;
@@ -37,7 +37,7 @@ class PeriodicTask {
   PeriodicTask(Millis interval, std::function<void()> fn);
   ~PeriodicTask();
 
-  void stop();
+  void Stop();
 
  private:
   std::mutex mutex_;
@@ -46,4 +46,4 @@ class PeriodicTask {
   std::thread thread_;
 };
 
-}
+}  // namespace gfs

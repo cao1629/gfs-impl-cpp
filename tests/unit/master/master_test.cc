@@ -1,3 +1,6 @@
+#include "master/master.h"
+
+#include <grpcpp/grpcpp.h>
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -7,12 +10,9 @@
 #include <mutex>
 #include <thread>
 
-#include <grpcpp/grpcpp.h>
-
 #include "common/config.h"
 #include "gfs.grpc.pb.h"
 #include "master/checkpoint.h"
-#include "master/master.h"
 #include "master/master_service.h"
 
 namespace gfs {
@@ -21,18 +21,21 @@ namespace fs = std::filesystem;
 
 namespace {
 
-void sleepMs(int ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
+void SleepMs(int ms) {
+  std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+}
 
-bool waitFor(const std::function<bool()>& pred, int timeout_ms) {
-  auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+bool WaitFor(const std::function<bool()>& pred, int timeout_ms) {
+  auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
   while (std::chrono::steady_clock::now() < deadline) {
     if (pred()) return true;
-    sleepMs(20);
+    SleepMs(20);
   }
   return pred();
 }
 
-Config testConfig(const std::string& data_dir) {
+Config TestConfig(const std::string& data_dir) {
   Config config;
   config.data_dir = data_dir;
   config.heartbeat_interval = Millis(100);
@@ -49,21 +52,25 @@ Config testConfig(const std::string& data_dir) {
 
 class FakeChunkserver final : public rpc::Chunkserver::Service {
  public:
-  FakeChunkserver(std::string id, std::string rack) : id_(std::move(id)), rack_(std::move(rack)) {
+  FakeChunkserver(std::string id, std::string rack)
+      : id_(std::move(id)), rack_(std::move(rack)) {
     int port = 0;
     grpc::ServerBuilder builder;
-    builder.AddListeningPort("127.0.0.1:0", grpc::InsecureServerCredentials(), &port);
+    builder.AddListeningPort("127.0.0.1:0", grpc::InsecureServerCredentials(),
+                             &port);
     builder.RegisterService(this);
     server_ = builder.BuildAndStart();
     address_ = "127.0.0.1:" + std::to_string(port);
   }
 
   ~FakeChunkserver() override {
-    stopHeartbeats();
+    StopHeartbeats();
     server_->Shutdown();
   }
 
-  grpc::Status CreateChunk(grpc::ServerContext*, const rpc::CreateChunkRequest* req, rpc::CreateChunkResponse* resp) override {
+  grpc::Status CreateChunk(grpc::ServerContext*,
+                           const rpc::CreateChunkRequest* req,
+                           rpc::CreateChunkResponse* resp) override {
     std::lock_guard<std::mutex> lock(mutex_);
     chunks_[req->handle()] = req->version();
     creates_.push_back(*req);
@@ -71,7 +78,9 @@ class FakeChunkserver final : public rpc::Chunkserver::Service {
     return grpc::Status::OK;
   }
 
-  grpc::Status GrantLease(grpc::ServerContext*, const rpc::GrantLeaseRequest* req, rpc::GrantLeaseResponse* resp) override {
+  grpc::Status GrantLease(grpc::ServerContext*,
+                          const rpc::GrantLeaseRequest* req,
+                          rpc::GrantLeaseResponse* resp) override {
     std::lock_guard<std::mutex> lock(mutex_);
     chunks_[req->handle()] = req->version();
     grants_.push_back(*req);
@@ -80,7 +89,9 @@ class FakeChunkserver final : public rpc::Chunkserver::Service {
     return grpc::Status::OK;
   }
 
-  grpc::Status RevokeLease(grpc::ServerContext*, const rpc::RevokeLeaseRequest* req, rpc::RevokeLeaseResponse* resp) override {
+  grpc::Status RevokeLease(grpc::ServerContext*,
+                           const rpc::RevokeLeaseRequest* req,
+                           rpc::RevokeLeaseResponse* resp) override {
     std::lock_guard<std::mutex> lock(mutex_);
     revokes_.push_back(*req);
     held_leases_.erase(req->handle());
@@ -88,7 +99,9 @@ class FakeChunkserver final : public rpc::Chunkserver::Service {
     return grpc::Status::OK;
   }
 
-  grpc::Status UpdateVersion(grpc::ServerContext*, const rpc::UpdateVersionRequest* req, rpc::UpdateVersionResponse* resp) override {
+  grpc::Status UpdateVersion(grpc::ServerContext*,
+                             const rpc::UpdateVersionRequest* req,
+                             rpc::UpdateVersionResponse* resp) override {
     std::lock_guard<std::mutex> lock(mutex_);
     chunks_[req->handle()] = req->version();
     updates_.push_back(*req);
@@ -96,7 +109,7 @@ class FakeChunkserver final : public rpc::Chunkserver::Service {
     return grpc::Status::OK;
   }
 
-  rpc::HeartBeatResponse heartbeat(rpc::Master::Stub& master) {
+  rpc::HeartBeatResponse Heartbeat(rpc::Master::Stub& master) {
     rpc::HeartBeatRequest req;
     req.set_chunkserver_id(id_);
     req.set_address(address_);
@@ -108,11 +121,13 @@ class FakeChunkserver final : public rpc::Chunkserver::Service {
         report->set_handle(handle);
         report->set_version(version);
       }
-      for (uint64_t handle : held_leases_) req.add_lease_extension_requests(handle);
+      for (uint64_t handle : held_leases_)
+        req.add_lease_extension_requests(handle);
     }
     rpc::HeartBeatResponse resp;
     grpc::ClientContext ctx;
-    ctx.set_deadline(std::chrono::system_clock::now() + std::chrono::milliseconds(500));
+    ctx.set_deadline(std::chrono::system_clock::now() +
+                     std::chrono::milliseconds(500));
     if (master.HeartBeat(&ctx, req, &resp).ok()) {
       std::lock_guard<std::mutex> lock(mutex_);
       for (uint64_t handle : resp.delete_handles()) chunks_.erase(handle);
@@ -120,45 +135,58 @@ class FakeChunkserver final : public rpc::Chunkserver::Service {
     return resp;
   }
 
-  void startHeartbeats(const std::string& master_address, int interval_ms) {
-    stopHeartbeats();
+  void StartHeartbeats(const std::string& master_address, int interval_ms) {
+    StopHeartbeats();
     running_ = true;
     heartbeat_thread_ = std::thread([this, master_address, interval_ms] {
-      auto stub = rpc::Master::NewStub(grpc::CreateChannel(master_address, grpc::InsecureChannelCredentials()));
+      auto stub = rpc::Master::NewStub(grpc::CreateChannel(
+          master_address, grpc::InsecureChannelCredentials()));
       while (running_) {
-        heartbeat(*stub);
-        for (int i = 0; i < interval_ms / 10 && running_; ++i) sleepMs(10);
+        Heartbeat(*stub);
+        for (int i = 0; i < interval_ms / 10 && running_; ++i) SleepMs(10);
       }
     });
   }
 
-  void stopHeartbeats() {
+  void StopHeartbeats() {
     running_ = false;
     if (heartbeat_thread_.joinable()) heartbeat_thread_.join();
   }
 
-  void setVersion(uint64_t handle, uint64_t version) {
+  void SetVersion(uint64_t handle, uint64_t version) {
     std::lock_guard<std::mutex> lock(mutex_);
     chunks_[handle] = version;
   }
 
-  bool holds(uint64_t handle) {
+  bool Holds(uint64_t handle) {
     std::lock_guard<std::mutex> lock(mutex_);
     return chunks_.count(handle) > 0;
   }
 
-  size_t chunkCount() {
+  size_t ChunkCount() {
     std::lock_guard<std::mutex> lock(mutex_);
     return chunks_.size();
   }
 
-  std::vector<rpc::CreateChunkRequest> creates() { std::lock_guard<std::mutex> lock(mutex_); return creates_; }
-  std::vector<rpc::GrantLeaseRequest> grants() { std::lock_guard<std::mutex> lock(mutex_); return grants_; }
-  std::vector<rpc::RevokeLeaseRequest> revokes() { std::lock_guard<std::mutex> lock(mutex_); return revokes_; }
-  std::vector<rpc::UpdateVersionRequest> updates() { std::lock_guard<std::mutex> lock(mutex_); return updates_; }
+  std::vector<rpc::CreateChunkRequest> Creates() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return creates_;
+  }
+  std::vector<rpc::GrantLeaseRequest> Grants() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return grants_;
+  }
+  std::vector<rpc::RevokeLeaseRequest> Revokes() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return revokes_;
+  }
+  std::vector<rpc::UpdateVersionRequest> Updates() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return updates_;
+  }
 
-  const std::string& id() const { return id_; }
-  const std::string& address() const { return address_; }
+  const std::string& Id() const { return id_; }
+  const std::string& Address() const { return address_; }
 
  private:
   std::string id_;
@@ -178,23 +206,27 @@ class FakeChunkserver final : public rpc::Chunkserver::Service {
 
 class MasterHarness {
  public:
-  explicit MasterHarness(Config config) : config_(std::move(config)) { start(); }
-  ~MasterHarness() { stop(); }
+  explicit MasterHarness(Config config) : config_(std::move(config)) {
+    Start();
+  }
+  ~MasterHarness() { Stop(); }
 
-  void start() {
+  void Start() {
     master_ = std::make_unique<Master>(config_);
-    master_->start();
+    master_->Start();
     service_ = std::make_unique<MasterService>(*master_);
     int port = 0;
     grpc::ServerBuilder builder;
-    builder.AddListeningPort("127.0.0.1:0", grpc::InsecureServerCredentials(), &port);
+    builder.AddListeningPort("127.0.0.1:0", grpc::InsecureServerCredentials(),
+                             &port);
     builder.RegisterService(service_.get());
     server_ = builder.BuildAndStart();
     address_ = "127.0.0.1:" + std::to_string(port);
-    stub_ = rpc::Master::NewStub(grpc::CreateChannel(address_, grpc::InsecureChannelCredentials()));
+    stub_ = rpc::Master::NewStub(
+        grpc::CreateChannel(address_, grpc::InsecureChannelCredentials()));
   }
 
-  void stop() {
+  void Stop() {
     if (server_) server_->Shutdown();
     server_.reset();
     stub_.reset();
@@ -202,16 +234,17 @@ class MasterHarness {
     master_.reset();
   }
 
-  void restart() {
-    stop();
-    start();
+  void Restart() {
+    Stop();
+    Start();
   }
 
-  rpc::Master::Stub& stub() { return *stub_; }
+  rpc::Master::Stub& Stub() { return *stub_; }
+  // NOLINTNEXTLINE(readability-identifier-naming)
   Master& master() { return *master_; }
-  const std::string& address() const { return address_; }
+  const std::string& Address() const { return address_; }
 
-  grpc::Status create(const std::string& path) {
+  grpc::Status Create(const std::string& path) {
     grpc::ClientContext ctx;
     rpc::CreateRequest req;
     req.set_path(path);
@@ -219,7 +252,7 @@ class MasterHarness {
     return stub_->Create(&ctx, req, &resp);
   }
 
-  grpc::Status open(const std::string& path, uint64_t* chunk_count = nullptr) {
+  grpc::Status Open(const std::string& path, uint64_t* chunk_count = nullptr) {
     grpc::ClientContext ctx;
     rpc::OpenRequest req;
     req.set_path(path);
@@ -229,7 +262,7 @@ class MasterHarness {
     return status;
   }
 
-  grpc::Status remove(const std::string& path) {
+  grpc::Status Remove(const std::string& path) {
     grpc::ClientContext ctx;
     rpc::DeleteRequest req;
     req.set_path(path);
@@ -237,7 +270,7 @@ class MasterHarness {
     return stub_->Delete(&ctx, req, &resp);
   }
 
-  grpc::Status rename(const std::string& source, const std::string& target) {
+  grpc::Status Rename(const std::string& source, const std::string& target) {
     grpc::ClientContext ctx;
     rpc::RenameRequest req;
     req.set_source(source);
@@ -246,9 +279,10 @@ class MasterHarness {
     return stub_->Rename(&ctx, req, &resp);
   }
 
-  grpc::Status snapshot(const std::string& source, const std::string& target) {
+  grpc::Status Snapshot(const std::string& source, const std::string& target) {
     grpc::ClientContext ctx;
-    ctx.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(10));
+    ctx.set_deadline(std::chrono::system_clock::now() +
+                     std::chrono::seconds(10));
     rpc::SnapshotRequest req;
     req.set_source(source);
     req.set_target(target);
@@ -256,7 +290,9 @@ class MasterHarness {
     return stub_->Snapshot(&ctx, req, &resp);
   }
 
-  std::vector<std::string> list(const std::string& directory, bool include_hidden = false, grpc::Status* status_out = nullptr) {
+  std::vector<std::string> List(const std::string& directory,
+                                bool include_hidden = false,
+                                grpc::Status* status_out = nullptr) {
     grpc::ClientContext ctx;
     rpc::FindMatchingFilesRequest req;
     req.set_directory(directory);
@@ -265,11 +301,13 @@ class MasterHarness {
     auto status = stub_->FindMatchingFiles(&ctx, req, &resp);
     if (status_out) *status_out = status;
     std::vector<std::string> names;
-    for (const auto& e : resp.entries()) names.push_back(e.name() + (e.is_directory() ? "/" : ""));
+    for (const auto& e : resp.entries())
+      names.push_back(e.name() + (e.is_directory() ? "/" : ""));
     return names;
   }
 
-  rpc::AddChunkResponse addChunk(const std::string& path, uint64_t index, grpc::Status* status_out = nullptr) {
+  rpc::AddChunkResponse AddChunk(const std::string& path, uint64_t index,
+                                 grpc::Status* status_out = nullptr) {
     grpc::ClientContext ctx;
     rpc::AddChunkRequest req;
     req.set_path(path);
@@ -280,7 +318,9 @@ class MasterHarness {
     return resp;
   }
 
-  rpc::FindLocationResponse findLocation(const std::string& path, uint64_t index, grpc::Status* status_out = nullptr) {
+  rpc::FindLocationResponse FindLocation(const std::string& path,
+                                         uint64_t index,
+                                         grpc::Status* status_out = nullptr) {
     grpc::ClientContext ctx;
     rpc::FindLocationRequest req;
     req.set_path(path);
@@ -292,9 +332,12 @@ class MasterHarness {
     return resp;
   }
 
-  rpc::FindLeaseHolderResponse findLeaseHolder(const std::string& path, uint64_t index, grpc::Status* status_out = nullptr) {
+  rpc::FindLeaseHolderResponse FindLeaseHolder(
+      const std::string& path, uint64_t index,
+      grpc::Status* status_out = nullptr) {
     grpc::ClientContext ctx;
-    ctx.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(10));
+    ctx.set_deadline(std::chrono::system_clock::now() +
+                     std::chrono::seconds(10));
     rpc::FindLeaseHolderRequest req;
     req.set_path(path);
     req.set_index(index);
@@ -316,30 +359,34 @@ class MasterHarness {
 class MasterTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    dir_ = (fs::temp_directory_path() / ("gfs-master-test-" + std::to_string(::getpid()) + "-" + ::testing::UnitTest::GetInstance()->current_test_info()->name())).string();
+    dir_ = (fs::temp_directory_path() /
+            ("gfs-master-test-" + std::to_string(::getpid()) + "-" +
+             ::testing::UnitTest::GetInstance()->current_test_info()->name()))
+               .string();
     fs::remove_all(dir_);
     fs::create_directories(dir_);
-    harness_ = std::make_unique<MasterHarness>(testConfig(dir_));
+    harness_ = std::make_unique<MasterHarness>(TestConfig(dir_));
   }
 
   void TearDown() override {
-    for (auto& f : fakes_) f->stopHeartbeats();
+    for (auto& f : fakes_) f->StopHeartbeats();
     harness_.reset();
     fakes_.clear();
     fs::remove_all(dir_);
   }
 
-  void startFakes(int count) {
+  void StartFakes(int count) {
     for (int i = 0; i < count; ++i) {
-      fakes_.push_back(std::make_unique<FakeChunkserver>("cs" + std::to_string(i), "rack" + std::to_string(i % 2)));
-      fakes_.back()->startHeartbeats(harness_->address(), 100);
+      fakes_.push_back(std::make_unique<FakeChunkserver>(
+          "cs" + std::to_string(i), "rack" + std::to_string(i % 2)));
+      fakes_.back()->StartHeartbeats(harness_->Address(), 100);
     }
-    sleepMs(250);
+    SleepMs(250);
   }
 
-  FakeChunkserver* fakeById(const std::string& id) {
+  FakeChunkserver* FakeById(const std::string& id) {
     for (auto& f : fakes_) {
-      if (f->id() == id) return f.get();
+      if (f->Id() == id) return f.get();
     }
     return nullptr;
   }
@@ -349,256 +396,276 @@ class MasterTest : public ::testing::Test {
   std::vector<std::unique_ptr<FakeChunkserver>> fakes_;
 };
 
-}
+}  // namespace
 
 TEST_F(MasterTest, NamespaceOperations) {
   auto& h = *harness_;
-  ASSERT_TRUE(h.create("/a/b").ok());
-  ASSERT_TRUE(h.create("/a/c").ok());
-  EXPECT_EQ(h.create("/a/b").error_code(), grpc::StatusCode::ALREADY_EXISTS);
-  EXPECT_EQ(h.create("/a/b/x").error_code(), grpc::StatusCode::INVALID_ARGUMENT);
-  EXPECT_EQ(h.create("/a").error_code(), grpc::StatusCode::ALREADY_EXISTS);
-  EXPECT_EQ(h.create("bad").error_code(), grpc::StatusCode::INVALID_ARGUMENT);
+  ASSERT_TRUE(h.Create("/a/b").ok());
+  ASSERT_TRUE(h.Create("/a/c").ok());
+  EXPECT_EQ(h.Create("/a/b").error_code(), grpc::StatusCode::ALREADY_EXISTS);
+  EXPECT_EQ(h.Create("/a/b/x").error_code(),
+            grpc::StatusCode::INVALID_ARGUMENT);
+  EXPECT_EQ(h.Create("/a").error_code(), grpc::StatusCode::ALREADY_EXISTS);
+  EXPECT_EQ(h.Create("bad").error_code(), grpc::StatusCode::INVALID_ARGUMENT);
   uint64_t count = 9;
-  ASSERT_TRUE(h.open("/a/b", &count).ok());
+  ASSERT_TRUE(h.Open("/a/b", &count).ok());
   EXPECT_EQ(count, 0u);
-  EXPECT_EQ(h.list("/"), std::vector<std::string>{"a/"});
-  EXPECT_EQ(h.list("/a"), (std::vector<std::string>{"b", "c"}));
+  EXPECT_EQ(h.List("/"), std::vector<std::string>{"a/"});
+  EXPECT_EQ(h.List("/a"), (std::vector<std::string>{"b", "c"}));
   grpc::Status status;
-  h.list("/nope", false, &status);
+  h.List("/nope", false, &status);
   EXPECT_EQ(status.error_code(), grpc::StatusCode::NOT_FOUND);
 
-  ASSERT_TRUE(h.remove("/a/b").ok());
-  EXPECT_EQ(h.open("/a/b").error_code(), grpc::StatusCode::NOT_FOUND);
-  EXPECT_EQ(h.list("/a"), std::vector<std::string>{"c"});
-  auto hidden = h.list("/a", true);
+  ASSERT_TRUE(h.Remove("/a/b").ok());
+  EXPECT_EQ(h.Open("/a/b").error_code(), grpc::StatusCode::NOT_FOUND);
+  EXPECT_EQ(h.List("/a"), std::vector<std::string>{"c"});
+  auto hidden = h.List("/a", true);
   ASSERT_EQ(hidden.size(), 2u);
   EXPECT_EQ(hidden[0].rfind(".deleted.", 0), 0u);
-  ASSERT_TRUE(h.rename("/a/" + hidden[0], "/a/b").ok());
-  EXPECT_TRUE(h.open("/a/b").ok());
-  ASSERT_TRUE(h.remove("/a/b").ok());
-  hidden = h.list("/a", true);
-  ASSERT_TRUE(h.remove("/a/" + hidden[0]).ok());
-  EXPECT_EQ(h.list("/a", true), std::vector<std::string>{"c"});
+  ASSERT_TRUE(h.Rename("/a/" + hidden[0], "/a/b").ok());
+  EXPECT_TRUE(h.Open("/a/b").ok());
+  ASSERT_TRUE(h.Remove("/a/b").ok());
+  hidden = h.List("/a", true);
+  ASSERT_TRUE(h.Remove("/a/" + hidden[0]).ok());
+  EXPECT_EQ(h.List("/a", true), std::vector<std::string>{"c"});
 
-  EXPECT_EQ(h.remove("/a").error_code(), grpc::StatusCode::NOT_FOUND);
-  EXPECT_EQ(h.remove("/missing").error_code(), grpc::StatusCode::NOT_FOUND);
-  ASSERT_TRUE(h.rename("/a/c", "/z/c").ok());
-  ASSERT_TRUE(h.rename("/z", "/y").ok());
-  EXPECT_TRUE(h.open("/y/c").ok());
-  EXPECT_EQ(h.rename("/y", "/y/inside").error_code(), grpc::StatusCode::INVALID_ARGUMENT);
-  EXPECT_EQ(h.rename("/y/c", "/y/c").error_code(), grpc::StatusCode::ALREADY_EXISTS);
-  EXPECT_EQ(h.list("/"), std::vector<std::string>{"y/"});
+  EXPECT_EQ(h.Remove("/a").error_code(), grpc::StatusCode::NOT_FOUND);
+  EXPECT_EQ(h.Remove("/missing").error_code(), grpc::StatusCode::NOT_FOUND);
+  ASSERT_TRUE(h.Rename("/a/c", "/z/c").ok());
+  ASSERT_TRUE(h.Rename("/z", "/y").ok());
+  EXPECT_TRUE(h.Open("/y/c").ok());
+  EXPECT_EQ(h.Rename("/y", "/y/inside").error_code(),
+            grpc::StatusCode::INVALID_ARGUMENT);
+  EXPECT_EQ(h.Rename("/y/c", "/y/c").error_code(),
+            grpc::StatusCode::ALREADY_EXISTS);
+  EXPECT_EQ(h.List("/"), std::vector<std::string>{"y/"});
 }
 
 TEST_F(MasterTest, AddChunkAndLeaseGrant) {
-  startFakes(3);
+  StartFakes(3);
   auto& h = *harness_;
-  ASSERT_TRUE(h.create("/f").ok());
+  ASSERT_TRUE(h.Create("/f").ok());
   grpc::Status status;
-  auto added = h.addChunk("/f", 0, &status);
+  auto added = h.AddChunk("/f", 0, &status);
   ASSERT_TRUE(status.ok());
   ASSERT_EQ(added.code(), rpc::OK);
   EXPECT_EQ(added.chunk().replicas_size(), 3);
   EXPECT_EQ(added.chunk().version(), 1u);
   uint64_t handle = added.chunk().handle();
   for (auto& f : fakes_) {
-    ASSERT_EQ(f->creates().size(), 1u);
-    EXPECT_EQ(f->creates()[0].handle(), handle);
-    EXPECT_EQ(f->creates()[0].version(), 1u);
-    EXPECT_EQ(f->creates()[0].copy_from(), 0u);
+    ASSERT_EQ(f->Creates().size(), 1u);
+    EXPECT_EQ(f->Creates()[0].handle(), handle);
+    EXPECT_EQ(f->Creates()[0].version(), 1u);
+    EXPECT_EQ(f->Creates()[0].copy_from(), 0u);
   }
-  EXPECT_EQ(h.addChunk("/f", 0).chunk().handle(), handle);
-  h.addChunk("/f", 5, &status);
+  EXPECT_EQ(h.AddChunk("/f", 0).chunk().handle(), handle);
+  h.AddChunk("/f", 5, &status);
   EXPECT_EQ(status.error_code(), grpc::StatusCode::INVALID_ARGUMENT);
   uint64_t count = 0;
-  ASSERT_TRUE(h.open("/f", &count).ok());
+  ASSERT_TRUE(h.Open("/f", &count).ok());
   EXPECT_EQ(count, 1u);
 
-  auto located = h.findLocation("/f", 0);
+  auto located = h.FindLocation("/f", 0);
   ASSERT_EQ(located.chunks_size(), 1);
   EXPECT_EQ(located.chunks(0).replicas_size(), 3);
 
-  auto lease = h.findLeaseHolder("/f", 0, &status);
+  auto lease = h.FindLeaseHolder("/f", 0, &status);
   ASSERT_TRUE(status.ok());
   ASSERT_EQ(lease.code(), rpc::OK);
   EXPECT_EQ(lease.handle(), handle);
   EXPECT_EQ(lease.version(), 2u);
   EXPECT_EQ(lease.secondaries_size(), 2);
-  FakeChunkserver* primary = fakeById(lease.primary().chunkserver_id());
+  FakeChunkserver* primary = FakeById(lease.primary().chunkserver_id());
   ASSERT_NE(primary, nullptr);
-  ASSERT_EQ(primary->grants().size(), 1u);
-  EXPECT_EQ(primary->grants()[0].version(), 2u);
-  EXPECT_EQ(primary->grants()[0].secondaries_size(), 2);
-  EXPECT_EQ(primary->grants()[0].lease_ms(), 2000u);
+  ASSERT_EQ(primary->Grants().size(), 1u);
+  EXPECT_EQ(primary->Grants()[0].version(), 2u);
+  EXPECT_EQ(primary->Grants()[0].secondaries_size(), 2);
+  EXPECT_EQ(primary->Grants()[0].lease_ms(), 2000u);
   for (const auto& s : lease.secondaries()) {
-    FakeChunkserver* secondary = fakeById(s.chunkserver_id());
+    FakeChunkserver* secondary = FakeById(s.chunkserver_id());
     ASSERT_NE(secondary, nullptr);
-    ASSERT_EQ(secondary->updates().size(), 1u);
-    EXPECT_EQ(secondary->updates()[0].version(), 2u);
+    ASSERT_EQ(secondary->Updates().size(), 1u);
+    EXPECT_EQ(secondary->Updates()[0].version(), 2u);
   }
-  auto again = h.findLeaseHolder("/f", 0);
+  auto again = h.FindLeaseHolder("/f", 0);
   EXPECT_EQ(again.primary().chunkserver_id(), lease.primary().chunkserver_id());
   EXPECT_EQ(again.version(), 2u);
-  EXPECT_EQ(primary->grants().size(), 1u);
-  EXPECT_EQ(h.findLocation("/f", 0).chunks(0).version(), 2u);
+  EXPECT_EQ(primary->Grants().size(), 1u);
+  EXPECT_EQ(h.FindLocation("/f", 0).chunks(0).version(), 2u);
 
-  sleepMs(300);
-  auto& state = h.master().state();
+  SleepMs(300);
+  auto& state = h.master().State();
   std::lock_guard<std::mutex> lock(state.mutex);
-  ASSERT_TRUE(state.chunks.find(handle)->lease.has_value());
-  EXPECT_GT(state.chunks.find(handle)->lease->expiry, now() + Millis(1500));
+  ASSERT_TRUE(state.chunks.Find(handle)->lease.has_value());
+  EXPECT_GT(state.chunks.Find(handle)->lease->expiry, Now() + Millis(1500));
 }
 
 TEST_F(MasterTest, StaleReplicaIsExcludedAndToldToDelete) {
-  startFakes(3);
+  StartFakes(3);
   auto& h = *harness_;
-  ASSERT_TRUE(h.create("/s").ok());
-  uint64_t handle = h.addChunk("/s", 0).chunk().handle();
-  auto lease = h.findLeaseHolder("/s", 0);
+  ASSERT_TRUE(h.Create("/s").ok());
+  uint64_t handle = h.AddChunk("/s", 0).chunk().handle();
+  auto lease = h.FindLeaseHolder("/s", 0);
   ASSERT_EQ(lease.code(), rpc::OK);
-  FakeChunkserver* stale = fakeById(lease.secondaries(0).chunkserver_id());
-  stale->setVersion(handle, 1);
-  ASSERT_TRUE(waitFor([&] { return h.findLocation("/s", 0).chunks(0).replicas_size() == 2; }, 2000));
-  auto located = h.findLocation("/s", 0);
-  for (const auto& r : located.chunks(0).replicas()) EXPECT_NE(r.chunkserver_id(), stale->id());
-  EXPECT_TRUE(waitFor([&] { return !stale->holds(handle); }, 2000));
-  FakeChunkserver* primary = fakeById(lease.primary().chunkserver_id());
-  EXPECT_TRUE(waitFor([&] { return primary->grants().size() >= 2; }, 2000));
-  EXPECT_EQ(primary->grants().back().secondaries_size(), 1);
+  FakeChunkserver* stale = FakeById(lease.secondaries(0).chunkserver_id());
+  stale->SetVersion(handle, 1);
+  ASSERT_TRUE(WaitFor(
+      [&] { return h.FindLocation("/s", 0).chunks(0).replicas_size() == 2; },
+      2000));
+  auto located = h.FindLocation("/s", 0);
+  for (const auto& r : located.chunks(0).replicas())
+    EXPECT_NE(r.chunkserver_id(), stale->Id());
+  EXPECT_TRUE(WaitFor([&] { return !stale->Holds(handle); }, 2000));
+  FakeChunkserver* primary = FakeById(lease.primary().chunkserver_id());
+  EXPECT_TRUE(WaitFor([&] { return primary->Grants().size() >= 2; }, 2000));
+  EXPECT_EQ(primary->Grants().back().secondaries_size(), 1);
 }
 
-TEST_F(MasterTest, DeadChunkserverShrinksReplicaSetAndPrimaryDeathWaitsForExpiry) {
-  startFakes(3);
+TEST_F(MasterTest,
+       DeadChunkserverShrinksReplicaSetAndPrimaryDeathWaitsForExpiry) {
+  StartFakes(3);
   auto& h = *harness_;
-  ASSERT_TRUE(h.create("/d").ok());
-  h.addChunk("/d", 0);
-  auto lease = h.findLeaseHolder("/d", 0);
+  ASSERT_TRUE(h.Create("/d").ok());
+  h.AddChunk("/d", 0);
+  auto lease = h.FindLeaseHolder("/d", 0);
   ASSERT_EQ(lease.code(), rpc::OK);
-  FakeChunkserver* primary = fakeById(lease.primary().chunkserver_id());
-  FakeChunkserver* secondary = fakeById(lease.secondaries(0).chunkserver_id());
-  secondary->stopHeartbeats();
-  ASSERT_TRUE(waitFor([&] { return h.findLocation("/d", 0).chunks(0).replicas_size() == 2; }, 3000));
-  ASSERT_TRUE(waitFor([&] { return primary->grants().size() >= 2; }, 2000));
-  EXPECT_EQ(primary->grants().back().version(), 3u);
-  EXPECT_EQ(primary->grants().back().secondaries_size(), 1);
-  EXPECT_EQ(h.findLeaseHolder("/d", 0).version(), 3u);
+  FakeChunkserver* primary = FakeById(lease.primary().chunkserver_id());
+  FakeChunkserver* secondary = FakeById(lease.secondaries(0).chunkserver_id());
+  secondary->StopHeartbeats();
+  ASSERT_TRUE(WaitFor(
+      [&] { return h.FindLocation("/d", 0).chunks(0).replicas_size() == 2; },
+      3000));
+  ASSERT_TRUE(WaitFor([&] { return primary->Grants().size() >= 2; }, 2000));
+  EXPECT_EQ(primary->Grants().back().version(), 3u);
+  EXPECT_EQ(primary->Grants().back().secondaries_size(), 1);
+  EXPECT_EQ(h.FindLeaseHolder("/d", 0).version(), 3u);
 
-  primary->stopHeartbeats();
-  ASSERT_TRUE(waitFor([&] { return h.findLocation("/d", 0).chunks(0).replicas_size() == 1; }, 3000));
+  primary->StopHeartbeats();
+  ASSERT_TRUE(WaitFor(
+      [&] { return h.FindLocation("/d", 0).chunks(0).replicas_size() == 1; },
+      3000));
   auto started = std::chrono::steady_clock::now();
-  auto replacement = h.findLeaseHolder("/d", 0);
-  auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started);
+  auto replacement = h.FindLeaseHolder("/d", 0);
+  auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now() - started);
   ASSERT_EQ(replacement.code(), rpc::OK);
-  EXPECT_NE(replacement.primary().chunkserver_id(), primary->id());
+  EXPECT_NE(replacement.primary().chunkserver_id(), primary->Id());
   EXPECT_EQ(replacement.version(), 4u);
   EXPECT_GT(elapsed.count(), 500);
   EXPECT_LT(elapsed.count(), 3000);
 }
 
 TEST_F(MasterTest, SnapshotRevokesThenCopiesOnWrite) {
-  startFakes(3);
+  StartFakes(3);
   auto& h = *harness_;
-  ASSERT_TRUE(h.create("/dir/s").ok());
-  uint64_t old_handle = h.addChunk("/dir/s", 0).chunk().handle();
-  auto lease = h.findLeaseHolder("/dir/s", 0);
+  ASSERT_TRUE(h.Create("/dir/s").ok());
+  uint64_t old_handle = h.AddChunk("/dir/s", 0).chunk().handle();
+  auto lease = h.FindLeaseHolder("/dir/s", 0);
   ASSERT_EQ(lease.code(), rpc::OK);
-  FakeChunkserver* primary = fakeById(lease.primary().chunkserver_id());
+  FakeChunkserver* primary = FakeById(lease.primary().chunkserver_id());
 
   auto started = std::chrono::steady_clock::now();
-  ASSERT_TRUE(h.snapshot("/dir", "/copy").ok());
-  auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started);
+  ASSERT_TRUE(h.Snapshot("/dir", "/copy").ok());
+  auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now() - started);
   EXPECT_LT(elapsed.count(), 1000);
-  ASSERT_EQ(primary->revokes().size(), 1u);
-  EXPECT_EQ(primary->revokes()[0].handle(), old_handle);
-  EXPECT_EQ(h.snapshot("/dir", "/copy").error_code(), grpc::StatusCode::ALREADY_EXISTS);
-  EXPECT_EQ(h.list("/copy"), std::vector<std::string>{"s"});
-  EXPECT_EQ(h.findLocation("/copy/s", 0).chunks(0).handle(), old_handle);
+  ASSERT_EQ(primary->Revokes().size(), 1u);
+  EXPECT_EQ(primary->Revokes()[0].handle(), old_handle);
+  EXPECT_EQ(h.Snapshot("/dir", "/copy").error_code(),
+            grpc::StatusCode::ALREADY_EXISTS);
+  EXPECT_EQ(h.List("/copy"), std::vector<std::string>{"s"});
+  EXPECT_EQ(h.FindLocation("/copy/s", 0).chunks(0).handle(), old_handle);
 
-  auto cow = h.findLeaseHolder("/dir/s", 0);
+  auto cow = h.FindLeaseHolder("/dir/s", 0);
   ASSERT_EQ(cow.code(), rpc::OK);
   EXPECT_NE(cow.handle(), old_handle);
   EXPECT_EQ(cow.version(), 2u);
-  EXPECT_EQ(h.findLocation("/dir/s", 0).chunks(0).handle(), cow.handle());
-  EXPECT_EQ(h.findLocation("/copy/s", 0).chunks(0).handle(), old_handle);
+  EXPECT_EQ(h.FindLocation("/dir/s", 0).chunks(0).handle(), cow.handle());
+  EXPECT_EQ(h.FindLocation("/copy/s", 0).chunks(0).handle(), old_handle);
   for (auto& f : fakes_) {
-    auto creates = f->creates();
+    auto creates = f->Creates();
     ASSERT_EQ(creates.size(), 2u);
     EXPECT_EQ(creates[1].handle(), cow.handle());
     EXPECT_EQ(creates[1].copy_from(), old_handle);
   }
-  auto copy_lease = h.findLeaseHolder("/copy/s", 0);
+  auto copy_lease = h.FindLeaseHolder("/copy/s", 0);
   ASSERT_EQ(copy_lease.code(), rpc::OK);
   EXPECT_EQ(copy_lease.handle(), old_handle);
   EXPECT_EQ(copy_lease.version(), 3u);
-  for (auto& f : fakes_) EXPECT_EQ(f->creates().size(), 2u);
+  for (auto& f : fakes_) EXPECT_EQ(f->Creates().size(), 2u);
 }
 
 TEST_F(MasterTest, RecoveryReplaysLogAndReconnectsReplicas) {
-  startFakes(3);
+  StartFakes(3);
   auto& h = *harness_;
-  ASSERT_TRUE(h.create("/r/a").ok());
-  ASSERT_TRUE(h.create("/r/b").ok());
-  uint64_t handle = h.addChunk("/r/a", 0).chunk().handle();
-  uint64_t second = h.addChunk("/r/a", 1).chunk().handle();
-  auto lease = h.findLeaseHolder("/r/a", 0);
+  ASSERT_TRUE(h.Create("/r/a").ok());
+  ASSERT_TRUE(h.Create("/r/b").ok());
+  uint64_t handle = h.AddChunk("/r/a", 0).chunk().handle();
+  uint64_t second = h.AddChunk("/r/a", 1).chunk().handle();
+  auto lease = h.FindLeaseHolder("/r/a", 0);
   ASSERT_EQ(lease.version(), 2u);
-  ASSERT_TRUE(h.rename("/r/b", "/r/c").ok());
-  ASSERT_TRUE(h.remove("/r/c").ok());
+  ASSERT_TRUE(h.Rename("/r/b", "/r/c").ok());
+  ASSERT_TRUE(h.Remove("/r/c").ok());
 
-  for (auto& f : fakes_) f->stopHeartbeats();
-  h.restart();
+  for (auto& f : fakes_) f->StopHeartbeats();
+  h.Restart();
   uint64_t count = 0;
-  ASSERT_TRUE(h.open("/r/a", &count).ok());
+  ASSERT_TRUE(h.Open("/r/a", &count).ok());
   EXPECT_EQ(count, 2u);
-  EXPECT_EQ(h.open("/r/c").error_code(), grpc::StatusCode::NOT_FOUND);
-  ASSERT_EQ(h.list("/r", true).size(), 2u);
-  auto located = h.findLocation("/r/a", 0);
+  EXPECT_EQ(h.Open("/r/c").error_code(), grpc::StatusCode::NOT_FOUND);
+  ASSERT_EQ(h.List("/r", true).size(), 2u);
+  auto located = h.FindLocation("/r/a", 0);
   ASSERT_EQ(located.chunks_size(), 1);
   EXPECT_EQ(located.chunks(0).handle(), handle);
   EXPECT_EQ(located.chunks(0).version(), 2u);
   EXPECT_EQ(located.chunks(0).replicas_size(), 0);
-  EXPECT_EQ(h.findLeaseHolder("/r/a", 0).code(), rpc::NO_REPLICAS);
+  EXPECT_EQ(h.FindLeaseHolder("/r/a", 0).code(), rpc::NO_REPLICAS);
 
-  for (auto& f : fakes_) f->startHeartbeats(h.address(), 100);
-  ASSERT_TRUE(waitFor([&] { return h.findLocation("/r/a", 0).chunks(0).replicas_size() == 3; }, 3000));
-  EXPECT_EQ(h.findLocation("/r/a", 1).chunks(0).handle(), second);
-  ASSERT_TRUE(h.create("/r/new").ok());
-  EXPECT_GT(h.addChunk("/r/new", 0).chunk().handle(), second);
-  auto regranted = h.findLeaseHolder("/r/a", 0);
+  for (auto& f : fakes_) f->StartHeartbeats(h.Address(), 100);
+  ASSERT_TRUE(WaitFor(
+      [&] { return h.FindLocation("/r/a", 0).chunks(0).replicas_size() == 3; },
+      3000));
+  EXPECT_EQ(h.FindLocation("/r/a", 1).chunks(0).handle(), second);
+  ASSERT_TRUE(h.Create("/r/new").ok());
+  EXPECT_GT(h.AddChunk("/r/new", 0).chunk().handle(), second);
+  auto regranted = h.FindLeaseHolder("/r/a", 0);
   ASSERT_EQ(regranted.code(), rpc::OK);
   EXPECT_EQ(regranted.version(), 3u);
 }
 
 TEST_F(MasterTest, GarbageCollectionRemovesHiddenFilesAndOrphanChunks) {
-  startFakes(3);
+  StartFakes(3);
   auto& h = *harness_;
-  ASSERT_TRUE(h.create("/g").ok());
-  uint64_t handle = h.addChunk("/g", 0).chunk().handle();
-  for (auto& f : fakes_) ASSERT_TRUE(f->holds(handle));
-  ASSERT_TRUE(h.remove("/g").ok());
-  EXPECT_EQ(h.list("/", true).size(), 1u);
-  ASSERT_TRUE(waitFor([&] { return h.list("/", true).empty(); }, 4000));
-  ASSERT_TRUE(waitFor([&] {
-    std::lock_guard<std::mutex> lock(h.master().state().mutex);
-    return h.master().state().chunks.find(handle) == nullptr;
-  }, 2000));
-  for (auto& f : fakes_) EXPECT_TRUE(waitFor([&] { return !f->holds(handle); }, 2000));
+  ASSERT_TRUE(h.Create("/g").ok());
+  uint64_t handle = h.AddChunk("/g", 0).chunk().handle();
+  for (auto& f : fakes_) ASSERT_TRUE(f->Holds(handle));
+  ASSERT_TRUE(h.Remove("/g").ok());
+  EXPECT_EQ(h.List("/", true).size(), 1u);
+  ASSERT_TRUE(WaitFor([&] { return h.List("/", true).empty(); }, 4000));
+  ASSERT_TRUE(WaitFor(
+      [&] {
+        std::lock_guard<std::mutex> lock(h.master().State().mutex);
+        return h.master().State().chunks.Find(handle) == nullptr;
+      },
+      2000));
+  for (auto& f : fakes_)
+    EXPECT_TRUE(WaitFor([&] { return !f->Holds(handle); }, 2000));
 }
 
 TEST_F(MasterTest, CheckpointRotationSurvivesRestart) {
   harness_.reset();
-  Config config = testConfig(dir_);
+  Config config = TestConfig(dir_);
   config.checkpoint_log_threshold = 512;
   harness_ = std::make_unique<MasterHarness>(config);
   auto& h = *harness_;
-  for (int i = 0; i < 60; ++i) ASSERT_TRUE(h.create("/many/f" + std::to_string(i)).ok());
-  ASSERT_TRUE(waitFor([&] { return !Checkpointer::list(dir_).empty(); }, 3000));
-  h.restart();
-  EXPECT_EQ(h.list("/many").size(), 60u);
-  ASSERT_TRUE(h.create("/many/after").ok());
-  h.restart();
-  EXPECT_EQ(h.list("/many").size(), 61u);
+  for (int i = 0; i < 60; ++i)
+    ASSERT_TRUE(h.Create("/many/f" + std::to_string(i)).ok());
+  ASSERT_TRUE(WaitFor([&] { return !Checkpointer::List(dir_).empty(); }, 3000));
+  h.Restart();
+  EXPECT_EQ(h.List("/many").size(), 60u);
+  ASSERT_TRUE(h.Create("/many/after").ok());
+  h.Restart();
+  EXPECT_EQ(h.List("/many").size(), 61u);
 }
 
-}
+}  // namespace gfs

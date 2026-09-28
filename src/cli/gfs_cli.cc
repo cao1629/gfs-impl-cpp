@@ -8,7 +8,7 @@
 
 namespace {
 
-const char* kUsage =
+const char* k_usage =
     "usage: gfs [--key=value ...] <command> [args...]\n"
     "commands:\n"
     "  create <path>\n"
@@ -21,43 +21,52 @@ const char* kUsage =
     "  write <path> [offset]\n"
     "  append <path>\n";
 
-const char* codeName(gfs::ErrorCode code) {
+const char* CodeName(gfs::ErrorCode code) {
   switch (code) {
-    case gfs::ErrorCode::kOk: return "ok";
-    case gfs::ErrorCode::kNotFound: return "not found";
-    case gfs::ErrorCode::kAlreadyExists: return "already exists";
-    case gfs::ErrorCode::kInvalidArgument: return "invalid argument";
-    case gfs::ErrorCode::kUnavailable: return "unavailable";
-    case gfs::ErrorCode::kStale: return "stale";
-    case gfs::ErrorCode::kFailed: return "failed";
+    case gfs::ErrorCode::kOk:
+      return "ok";
+    case gfs::ErrorCode::kNotFound:
+      return "not found";
+    case gfs::ErrorCode::kAlreadyExists:
+      return "already exists";
+    case gfs::ErrorCode::kInvalidArgument:
+      return "invalid argument";
+    case gfs::ErrorCode::kUnavailable:
+      return "unavailable";
+    case gfs::ErrorCode::kStale:
+      return "stale";
+    case gfs::ErrorCode::kFailed:
+      return "failed";
   }
   return "failed";
 }
 
-int fail(const std::string& message) {
+int Fail(const std::string& message) {
   std::cerr << message << std::endl;
   return 1;
 }
 
-int usage() {
-  std::cerr << kUsage << gfs::Config::usage();
+int Usage() {
+  std::cerr << k_usage << gfs::Config::Usage();
   return 2;
 }
 
-bool parseNumber(const std::string& text, uint64_t* out) {
-  return gfs::parseSize(text, out);
+bool ParseNumber(const std::string& text, uint64_t* out) {
+  return gfs::ParseSize(text, out);
 }
 
-std::string readStdin() {
-  return std::string(std::istreambuf_iterator<char>(std::cin), std::istreambuf_iterator<char>());
+std::string ReadStdin() {
+  return std::string(std::istreambuf_iterator<char>(std::cin),
+                     std::istreambuf_iterator<char>());
 }
 
-int check(const gfs::Status& status) {
+int Check(const gfs::Status& status) {
   if (status.ok()) return 0;
-  return fail(std::string(codeName(status.code)) + (status.message.empty() ? "" : ": " + status.message));
+  return Fail(std::string(CodeName(status.code)) +
+              (status.message.empty() ? "" : ": " + status.message));
 }
 
-}
+}  // namespace
 
 int main(int argc, char** argv) {
   gfs::Config config;
@@ -77,53 +86,60 @@ int main(int argc, char** argv) {
     } else if (i + 1 < argc) {
       value = argv[++i];
     } else {
-      return usage();
+      return Usage();
     }
-    if (!gfs::Config::set(config, key, value)) {
+    if (!gfs::Config::Set(config, key, value)) {
       std::cerr << "unknown option --" << key << "\n";
-      return usage();
+      return Usage();
     }
   }
-  if (positional.empty()) return usage();
+  if (positional.empty()) return Usage();
   std::string command = positional[0];
   std::vector<std::string> args(positional.begin() + 1, positional.end());
   gfs::Client client(config);
 
-  if (command == "create" && args.size() == 1) return check(client.create(args[0]));
-  if (command == "rm" && args.size() == 1) return check(client.remove(args[0]));
-  if (command == "mv" && args.size() == 2) return check(client.rename(args[0], args[1]));
-  if (command == "snapshot" && args.size() == 2) return check(client.snapshot(args[0], args[1]));
-  if (command == "ls" && (args.size() == 1 || (args.size() == 2 && args[0] == "-a"))) {
+  if (command == "create" && args.size() == 1)
+    return Check(client.Create(args[0]));
+  if (command == "rm" && args.size() == 1) return Check(client.Remove(args[0]));
+  if (command == "mv" && args.size() == 2)
+    return Check(client.Rename(args[0], args[1]));
+  if (command == "snapshot" && args.size() == 2)
+    return Check(client.Snapshot(args[0], args[1]));
+  if (command == "ls" &&
+      (args.size() == 1 || (args.size() == 2 && args[0] == "-a"))) {
     bool all = args.size() == 2;
     std::vector<gfs::DirEntry> entries;
-    gfs::Status status = client.list(args.back(), &entries, all);
-    if (!status.ok()) return check(status);
-    for (const auto& e : entries) std::cout << e.name << (e.is_directory ? "/" : "") << "\n";
+    gfs::Status status = client.List(args.back(), &entries, all);
+    if (!status.ok()) return Check(status);
+    for (const auto& e : entries)
+      std::cout << e.name << (e.is_directory ? "/" : "") << "\n";
     return 0;
   }
   if (command == "stat" && args.size() == 1) {
     gfs::FileInfo info;
-    gfs::Status status = client.open(args[0], &info);
-    if (!status.ok()) return check(status);
+    gfs::Status status = client.Open(args[0], &info);
+    if (!status.ok()) return Check(status);
     uint64_t length = 0;
-    status = client.length(args[0], &length);
-    if (!status.ok()) return check(status);
-    std::cout << "chunks: " << info.chunk_count << "\nlength: " << length << "\n";
+    status = client.Length(args[0], &length);
+    if (!status.ok()) return Check(status);
+    std::cout << "chunks: " << info.chunk_count << "\nlength: " << length
+              << "\n";
     return 0;
   }
   if (command == "read" && args.size() >= 1 && args.size() <= 3) {
     uint64_t offset = 0;
     uint64_t length = 0;
     bool bounded = args.size() == 3;
-    if (args.size() >= 2 && !parseNumber(args[1], &offset)) return fail("bad offset");
-    if (bounded && !parseNumber(args[2], &length)) return fail("bad length");
+    if (args.size() >= 2 && !ParseNumber(args[1], &offset))
+      return Fail("bad offset");
+    if (bounded && !ParseNumber(args[2], &length)) return Fail("bad length");
     const uint64_t step = 1 << 20;
     uint64_t remaining = bounded ? length : step;
     while (remaining > 0) {
       uint64_t want = bounded ? std::min(remaining, step) : step;
       std::string data;
-      gfs::Status status = client.read(args[0], offset, want, &data);
-      if (!status.ok()) return check(status);
+      gfs::Status status = client.Read(args[0], offset, want, &data);
+      if (!status.ok()) return Check(status);
       std::cout.write(data.data(), static_cast<std::streamsize>(data.size()));
       offset += data.size();
       if (bounded) remaining -= std::min(remaining, want);
@@ -134,15 +150,16 @@ int main(int argc, char** argv) {
   }
   if (command == "write" && (args.size() == 1 || args.size() == 2)) {
     uint64_t offset = 0;
-    if (args.size() == 2 && !parseNumber(args[1], &offset)) return fail("bad offset");
-    return check(client.write(args[0], offset, readStdin()));
+    if (args.size() == 2 && !ParseNumber(args[1], &offset))
+      return Fail("bad offset");
+    return Check(client.Write(args[0], offset, ReadStdin()));
   }
   if (command == "append" && args.size() == 1) {
     uint64_t offset = 0;
-    gfs::Status status = client.recordAppend(args[0], readStdin(), &offset);
-    if (!status.ok()) return check(status);
+    gfs::Status status = client.RecordAppend(args[0], ReadStdin(), &offset);
+    if (!status.ok()) return Check(status);
     std::cout << offset << "\n";
     return 0;
   }
-  return usage();
+  return Usage();
 }

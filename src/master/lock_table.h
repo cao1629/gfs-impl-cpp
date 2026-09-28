@@ -30,9 +30,9 @@ class LockSet {
   LockSet(const LockSet&) = delete;
   LockSet& operator=(const LockSet&) = delete;
 
-  void release();
-  bool empty() const { return held_.empty(); }
-  const std::vector<LockRequest>& held() const { return held_; }
+  void Release();
+  bool Empty() const { return held_.empty(); }
+  const std::vector<LockRequest>& Held() const { return held_; }
 
  private:
   LockTable* table_ = nullptr;
@@ -41,13 +41,16 @@ class LockSet {
 
 class LockTable {
  public:
-  LockSet acquire(std::vector<LockRequest> requests);
-  void release(const std::vector<LockRequest>& held);
-  size_t activeEntries();
+  LockSet Acquire(std::vector<LockRequest> requests);
+  void Release(const std::vector<LockRequest>& held);
+  size_t ActiveEntries();
 
-  static std::vector<LockRequest> normalize(std::vector<LockRequest> requests);
-  static std::vector<LockRequest> forPath(std::string_view path, LockMode leaf);
-  static std::vector<LockRequest> forPaths(std::string_view first, LockMode first_mode, std::string_view second, LockMode second_mode);
+  static std::vector<LockRequest> Normalize(std::vector<LockRequest> requests);
+  static std::vector<LockRequest> ForPath(std::string_view path, LockMode leaf);
+  static std::vector<LockRequest> ForPaths(std::string_view first,
+                                           LockMode first_mode,
+                                           std::string_view second,
+                                           LockMode second_mode);
 
  private:
   struct Entry {
@@ -58,12 +61,12 @@ class LockTable {
     std::condition_variable cv;
   };
 
-  Entry& entryLocked(const std::string& path);
-  void lockOne(const LockRequest& request);
-  void unlockOne(const LockRequest& request);
+  Entry& EntryLocked(const std::string& path);
+  void LockOne(const LockRequest& request);
+  void UnlockOne(const LockRequest& request);
 
   std::mutex mutex_;
   std::unordered_map<std::string, std::unique_ptr<Entry>> entries_;
 };
 
-}
+}  // namespace gfs

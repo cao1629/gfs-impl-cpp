@@ -14,11 +14,11 @@ class WorkerPool {
   explicit WorkerPool(size_t threads);
   ~WorkerPool();
 
-  void post(std::function<void()> task);
-  void stop();
+  void Post(std::function<void()> task);
+  void Stop();
 
  private:
-  void run();
+  void Run();
 
   std::mutex mutex_;
   std::condition_variable cv_;
@@ -27,4 +27,4 @@ class WorkerPool {
   bool stopping_ = false;
 };
 
-}
+}  // namespace gfs

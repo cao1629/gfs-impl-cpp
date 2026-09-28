@@ -27,37 +27,40 @@ class FakeChunkserver final : public rpc::Chunkserver::Service {
  public:
   explicit FakeChunkserver(std::string id) : id_(std::move(id)) {}
 
-  void start() {
+  void Start() {
     int port = 0;
     grpc::ServerBuilder builder;
-    builder.AddListeningPort("127.0.0.1:0", grpc::InsecureServerCredentials(), &port);
+    builder.AddListeningPort("127.0.0.1:0", grpc::InsecureServerCredentials(),
+                             &port);
     builder.RegisterService(this);
     server_ = builder.BuildAndStart();
     address_ = "127.0.0.1:" + std::to_string(port);
   }
 
-  void stop() {
+  void Stop() {
     if (server_) server_->Shutdown();
   }
 
-  const std::string& id() const { return id_; }
-  const std::string& address() const { return address_; }
+  const std::string& Id() const { return id_; }
+  const std::string& Address() const { return address_; }
 
-  rpc::Replica replica() const {
+  rpc::Replica Replica() const {
     rpc::Replica r;
     r.set_chunkserver_id(id_);
     r.set_address(address_);
     return r;
   }
 
-  void setPeers(std::vector<std::string> addresses) { peers_ = std::move(addresses); }
+  void SetPeers(std::vector<std::string> addresses) {
+    peers_ = std::move(addresses);
+  }
 
-  void createChunk(uint64_t handle, uint64_t version) {
+  void CreateChunk(uint64_t handle, uint64_t version) {
     std::lock_guard<std::mutex> lock(mu_);
     chunks_[handle] = FakeChunk{version, ""};
   }
 
-  std::string chunkData(uint64_t handle) {
+  std::string ChunkData(uint64_t handle) {
     std::lock_guard<std::mutex> lock(mu_);
     return chunks_[handle].data;
   }
@@ -66,7 +69,9 @@ class FakeChunkserver final : public rpc::Chunkserver::Service {
   std::atomic<int> drop_data{0};
   std::atomic<int> pushes{0};
 
-  grpc::Status PushData(grpc::ServerContext*, grpc::ServerReader<rpc::PushDataRequest>* reader, rpc::PushDataResponse* resp) override {
+  grpc::Status PushData(grpc::ServerContext*,
+                        grpc::ServerReader<rpc::PushDataRequest>* reader,
+                        rpc::PushDataResponse* resp) override {
     rpc::PushDataRequest msg;
     if (!reader->Read(&msg) || !msg.has_header()) {
       resp->set_code(rpc::FAILED);
@@ -81,14 +86,16 @@ class FakeChunkserver final : public rpc::Chunkserver::Service {
       buffer_[{header.client_id(), header.sequence()}] = data;
     }
     if (header.forward_to_size() > 0) {
-      auto stub = rpc::Chunkserver::NewStub(grpc::CreateChannel(header.forward_to(0).address(), grpc::InsecureChannelCredentials()));
+      auto stub = rpc::Chunkserver::NewStub(grpc::CreateChannel(
+          header.forward_to(0).address(), grpc::InsecureChannelCredentials()));
       grpc::ClientContext ctx;
       rpc::PushDataResponse forwarded;
       auto writer = stub->PushData(&ctx, &forwarded);
       rpc::PushDataRequest first;
       *first.mutable_header() = header;
       first.mutable_header()->clear_forward_to();
-      for (int i = 1; i < header.forward_to_size(); ++i) *first.mutable_header()->add_forward_to() = header.forward_to(i);
+      for (int i = 1; i < header.forward_to_size(); ++i)
+        *first.mutable_header()->add_forward_to() = header.forward_to(i);
       writer->Write(first);
       rpc::PushDataRequest payload;
       payload.set_data(data);
@@ -109,7 +116,8 @@ class FakeChunkserver final : public rpc::Chunkserver::Service {
     return grpc::Status::OK;
   }
 
-  grpc::Status Read(grpc::ServerContext*, const rpc::ReadRequest* req, rpc::ReadResponse* resp) override {
+  grpc::Status Read(grpc::ServerContext*, const rpc::ReadRequest* req,
+                    rpc::ReadResponse* resp) override {
     if (stale_reads > 0) {
       --stale_reads;
       resp->set_code(rpc::STALE_VERSION);
@@ -126,31 +134,37 @@ class FakeChunkserver final : public rpc::Chunkserver::Service {
       return grpc::Status::OK;
     }
     resp->set_code(rpc::OK);
-    if (req->offset() < it->second.data.size()) resp->set_data(it->second.data.substr(req->offset(), req->length()));
+    if (req->offset() < it->second.data.size())
+      resp->set_data(it->second.data.substr(req->offset(), req->length()));
     return grpc::Status::OK;
   }
 
-  grpc::Status Write(grpc::ServerContext*, const rpc::WriteRequest* req, rpc::WriteResponse* resp) override {
+  grpc::Status Write(grpc::ServerContext*, const rpc::WriteRequest* req,
+                     rpc::WriteResponse* resp) override {
     std::string data;
-    if (!takeBuffer(req->client_id(), req->sequence(), &data)) {
+    if (!TakeBuffer(req->client_id(), req->sequence(), &data)) {
       resp->set_code(rpc::DATA_MISSING);
       return grpc::Status::OK;
     }
     {
       std::lock_guard<std::mutex> lock(mu_);
-      rpc::ResultCode code = applyLocked(req->handle(), req->version(), rpc::WRITE, req->offset(), data);
+      rpc::ResultCode code = ApplyLocked(req->handle(), req->version(),
+                                         rpc::WRITE, req->offset(), data);
       if (code != rpc::OK) {
         resp->set_code(code);
         return grpc::Status::OK;
       }
     }
-    resp->set_code(forward(req->handle(), req->version(), rpc::WRITE, req->offset(), req->client_id(), req->sequence()));
+    resp->set_code(Forward(req->handle(), req->version(), rpc::WRITE,
+                           req->offset(), req->client_id(), req->sequence()));
     return grpc::Status::OK;
   }
 
-  grpc::Status RecordAppend(grpc::ServerContext*, const rpc::RecordAppendRequest* req, rpc::RecordAppendResponse* resp) override {
+  grpc::Status RecordAppend(grpc::ServerContext*,
+                            const rpc::RecordAppendRequest* req,
+                            rpc::RecordAppendResponse* resp) override {
     std::string data;
-    if (!takeBuffer(req->client_id(), req->sequence(), &data)) {
+    if (!TakeBuffer(req->client_id(), req->sequence(), &data)) {
       resp->set_code(rpc::DATA_MISSING);
       return grpc::Status::OK;
     }
@@ -169,9 +183,12 @@ class FakeChunkserver final : public rpc::Chunkserver::Service {
       }
       offset = it->second.data.size();
       pad = offset + data.size() > kFakeChunkSize;
-      applyLocked(req->handle(), req->version(), pad ? rpc::PAD : rpc::WRITE, offset, data);
+      ApplyLocked(req->handle(), req->version(), pad ? rpc::PAD : rpc::WRITE,
+                  offset, data);
     }
-    rpc::ResultCode code = forward(req->handle(), req->version(), pad ? rpc::PAD : rpc::WRITE, offset, req->client_id(), req->sequence());
+    rpc::ResultCode code =
+        Forward(req->handle(), req->version(), pad ? rpc::PAD : rpc::WRITE,
+                offset, req->client_id(), req->sequence());
     if (code != rpc::OK) {
       resp->set_code(code);
       return grpc::Status::OK;
@@ -181,7 +198,9 @@ class FakeChunkserver final : public rpc::Chunkserver::Service {
     return grpc::Status::OK;
   }
 
-  grpc::Status GetChunkLength(grpc::ServerContext*, const rpc::GetChunkLengthRequest* req, rpc::GetChunkLengthResponse* resp) override {
+  grpc::Status GetChunkLength(grpc::ServerContext*,
+                              const rpc::GetChunkLengthRequest* req,
+                              rpc::GetChunkLengthResponse* resp) override {
     std::lock_guard<std::mutex> lock(mu_);
     auto it = chunks_.find(req->handle());
     if (it == chunks_.end()) {
@@ -193,40 +212,51 @@ class FakeChunkserver final : public rpc::Chunkserver::Service {
     return grpc::Status::OK;
   }
 
-  grpc::Status ApplyMutation(grpc::ServerContext*, const rpc::ApplyMutationRequest* req, rpc::ApplyMutationResponse* resp) override {
+  grpc::Status ApplyMutation(grpc::ServerContext*,
+                             const rpc::ApplyMutationRequest* req,
+                             rpc::ApplyMutationResponse* resp) override {
     std::string data;
-    if (req->kind() == rpc::WRITE && !takeBuffer(req->client_id(), req->sequence(), &data)) {
+    if (req->kind() == rpc::WRITE &&
+        !TakeBuffer(req->client_id(), req->sequence(), &data)) {
       resp->set_code(rpc::DATA_MISSING);
       return grpc::Status::OK;
     }
     std::lock_guard<std::mutex> lock(mu_);
-    resp->set_code(applyLocked(req->handle(), req->version(), req->kind(), req->offset(), data));
+    resp->set_code(ApplyLocked(req->handle(), req->version(), req->kind(),
+                               req->offset(), data));
     return grpc::Status::OK;
   }
 
-  grpc::Status CreateChunk(grpc::ServerContext*, const rpc::CreateChunkRequest* req, rpc::CreateChunkResponse* resp) override {
-    createChunk(req->handle(), req->version());
+  grpc::Status CreateChunk(grpc::ServerContext*,
+                           const rpc::CreateChunkRequest* req,
+                           rpc::CreateChunkResponse* resp) override {
+    CreateChunk(req->handle(), req->version());
     resp->set_code(rpc::OK);
     return grpc::Status::OK;
   }
 
-  grpc::Status GrantLease(grpc::ServerContext*, const rpc::GrantLeaseRequest*, rpc::GrantLeaseResponse* resp) override {
+  grpc::Status GrantLease(grpc::ServerContext*, const rpc::GrantLeaseRequest*,
+                          rpc::GrantLeaseResponse* resp) override {
     resp->set_code(rpc::OK);
     return grpc::Status::OK;
   }
 
-  grpc::Status RevokeLease(grpc::ServerContext*, const rpc::RevokeLeaseRequest*, rpc::RevokeLeaseResponse* resp) override {
+  grpc::Status RevokeLease(grpc::ServerContext*, const rpc::RevokeLeaseRequest*,
+                           rpc::RevokeLeaseResponse* resp) override {
     resp->set_code(rpc::OK);
     return grpc::Status::OK;
   }
 
-  grpc::Status UpdateVersion(grpc::ServerContext*, const rpc::UpdateVersionRequest*, rpc::UpdateVersionResponse* resp) override {
+  grpc::Status UpdateVersion(grpc::ServerContext*,
+                             const rpc::UpdateVersionRequest*,
+                             rpc::UpdateVersionResponse* resp) override {
     resp->set_code(rpc::OK);
     return grpc::Status::OK;
   }
 
  private:
-  bool takeBuffer(const std::string& client, uint64_t sequence, std::string* data) {
+  bool TakeBuffer(const std::string& client, uint64_t sequence,
+                  std::string* data) {
     std::lock_guard<std::mutex> lock(mu_);
     auto it = buffer_.find({client, sequence});
     if (it == buffer_.end()) return false;
@@ -239,7 +269,9 @@ class FakeChunkserver final : public rpc::Chunkserver::Service {
     return true;
   }
 
-  rpc::ResultCode applyLocked(uint64_t handle, uint64_t version, rpc::MutationKind kind, uint64_t offset, const std::string& data) {
+  rpc::ResultCode ApplyLocked(uint64_t handle, uint64_t version,
+                              rpc::MutationKind kind, uint64_t offset,
+                              const std::string& data) {
     auto it = chunks_.find(handle);
     if (it == chunks_.end()) return rpc::NO_SUCH_CHUNK;
     if (it->second.version != version) return rpc::STALE_VERSION;
@@ -249,14 +281,18 @@ class FakeChunkserver final : public rpc::Chunkserver::Service {
       return rpc::OK;
     }
     if (offset + data.size() > kFakeChunkSize) return rpc::OUT_OF_RANGE;
-    if (bytes.size() < offset + data.size()) bytes.resize(offset + data.size(), '\0');
+    if (bytes.size() < offset + data.size())
+      bytes.resize(offset + data.size(), '\0');
     bytes.replace(offset, data.size(), data);
     return rpc::OK;
   }
 
-  rpc::ResultCode forward(uint64_t handle, uint64_t version, rpc::MutationKind kind, uint64_t offset, const std::string& client, uint64_t sequence) {
+  rpc::ResultCode Forward(uint64_t handle, uint64_t version,
+                          rpc::MutationKind kind, uint64_t offset,
+                          const std::string& client, uint64_t sequence) {
     for (const auto& peer : peers_) {
-      auto stub = rpc::Chunkserver::NewStub(grpc::CreateChannel(peer, grpc::InsecureChannelCredentials()));
+      auto stub = rpc::Chunkserver::NewStub(
+          grpc::CreateChannel(peer, grpc::InsecureChannelCredentials()));
       grpc::ClientContext ctx;
       rpc::ApplyMutationRequest req;
       req.set_handle(handle);
@@ -285,74 +321,92 @@ class FakeChunkserver final : public rpc::Chunkserver::Service {
 
 class FakeMaster final : public rpc::Master::Service {
  public:
-  explicit FakeMaster(std::vector<FakeChunkserver*> servers) : servers_(std::move(servers)) {}
+  explicit FakeMaster(std::vector<FakeChunkserver*> servers)
+      : servers_(std::move(servers)) {}
 
-  void start() {
+  void Start() {
     int port = 0;
     grpc::ServerBuilder builder;
-    builder.AddListeningPort("127.0.0.1:0", grpc::InsecureServerCredentials(), &port);
+    builder.AddListeningPort("127.0.0.1:0", grpc::InsecureServerCredentials(),
+                             &port);
     builder.RegisterService(this);
     server_ = builder.BuildAndStart();
     address_ = "127.0.0.1:" + std::to_string(port);
   }
 
-  void stop() {
+  void Stop() {
     if (server_) server_->Shutdown();
   }
 
-  const std::string& address() const { return address_; }
+  const std::string& Address() const { return address_; }
 
-  grpc::Status GetClusterInfo(grpc::ServerContext*, const rpc::GetClusterInfoRequest*, rpc::GetClusterInfoResponse* resp) override {
+  grpc::Status GetClusterInfo(grpc::ServerContext*,
+                              const rpc::GetClusterInfoRequest*,
+                              rpc::GetClusterInfoResponse* resp) override {
     resp->set_chunk_size(kFakeChunkSize);
     resp->set_max_record_append_size(kFakeMaxAppend);
     return grpc::Status::OK;
   }
 
-  grpc::Status Create(grpc::ServerContext*, const rpc::CreateRequest* req, rpc::CreateResponse*) override {
+  grpc::Status Create(grpc::ServerContext*, const rpc::CreateRequest* req,
+                      rpc::CreateResponse*) override {
     std::lock_guard<std::mutex> lock(mu_);
-    if (!isValidPath(req->path()) || req->path() == "/") return {grpc::StatusCode::INVALID_ARGUMENT, "bad path"};
-    if (files_.count(req->path())) return {grpc::StatusCode::ALREADY_EXISTS, "exists"};
-    for (const auto& ancestor : ancestorsOf(req->path())) {
-      if (files_.count(ancestor)) return {grpc::StatusCode::INVALID_ARGUMENT, "ancestor is a file"};
+    if (!IsValidPath(req->path()) || req->path() == "/")
+      return {grpc::StatusCode::INVALID_ARGUMENT, "bad path"};
+    if (files_.count(req->path()))
+      return {grpc::StatusCode::ALREADY_EXISTS, "exists"};
+    for (const auto& ancestor : AncestorsOf(req->path())) {
+      if (files_.count(ancestor))
+        return {grpc::StatusCode::INVALID_ARGUMENT, "ancestor is a file"};
     }
     files_[req->path()] = {};
     return grpc::Status::OK;
   }
 
-  grpc::Status Open(grpc::ServerContext*, const rpc::OpenRequest* req, rpc::OpenResponse* resp) override {
+  grpc::Status Open(grpc::ServerContext*, const rpc::OpenRequest* req,
+                    rpc::OpenResponse* resp) override {
     std::lock_guard<std::mutex> lock(mu_);
     auto it = files_.find(req->path());
-    if (it == files_.end()) return {grpc::StatusCode::NOT_FOUND, "no such file"};
+    if (it == files_.end())
+      return {grpc::StatusCode::NOT_FOUND, "no such file"};
     resp->set_chunk_count(it->second.size());
     return grpc::Status::OK;
   }
 
-  grpc::Status Delete(grpc::ServerContext*, const rpc::DeleteRequest* req, rpc::DeleteResponse*) override {
+  grpc::Status Delete(grpc::ServerContext*, const rpc::DeleteRequest* req,
+                      rpc::DeleteResponse*) override {
     std::lock_guard<std::mutex> lock(mu_);
-    if (!files_.erase(req->path())) return {grpc::StatusCode::NOT_FOUND, "no such file"};
+    if (!files_.erase(req->path()))
+      return {grpc::StatusCode::NOT_FOUND, "no such file"};
     return grpc::Status::OK;
   }
 
-  grpc::Status Rename(grpc::ServerContext*, const rpc::RenameRequest* req, rpc::RenameResponse*) override {
+  grpc::Status Rename(grpc::ServerContext*, const rpc::RenameRequest* req,
+                      rpc::RenameResponse*) override {
     std::lock_guard<std::mutex> lock(mu_);
-    return moveLocked(req->source(), req->target(), true);
+    return MoveLocked(req->source(), req->target(), true);
   }
 
-  grpc::Status Snapshot(grpc::ServerContext*, const rpc::SnapshotRequest* req, rpc::SnapshotResponse*) override {
+  grpc::Status Snapshot(grpc::ServerContext*, const rpc::SnapshotRequest* req,
+                        rpc::SnapshotResponse*) override {
     std::lock_guard<std::mutex> lock(mu_);
-    return moveLocked(req->source(), req->target(), false);
+    return MoveLocked(req->source(), req->target(), false);
   }
 
-  grpc::Status FindMatchingFiles(grpc::ServerContext*, const rpc::FindMatchingFilesRequest* req, rpc::FindMatchingFilesResponse* resp) override {
+  grpc::Status FindMatchingFiles(
+      grpc::ServerContext*, const rpc::FindMatchingFilesRequest* req,
+      rpc::FindMatchingFilesResponse* resp) override {
     std::lock_guard<std::mutex> lock(mu_);
-    std::string prefix = childPrefix(req->directory());
+    std::string prefix = ChildPrefix(req->directory());
     std::map<std::string, bool> seen;
-    for (auto it = files_.lower_bound(prefix); it != files_.end() && it->first.compare(0, prefix.size(), prefix) == 0; ++it) {
+    for (auto it = files_.lower_bound(prefix);
+         it != files_.end() && it->first.compare(0, prefix.size(), prefix) == 0;
+         ++it) {
       std::string rest = it->first.substr(prefix.size());
       size_t slash = rest.find('/');
       bool dir = slash != std::string::npos;
       std::string name = dir ? rest.substr(0, slash) : rest;
-      if (!dir && !req->include_hidden() && isHiddenPath(it->first)) continue;
+      if (!dir && !req->include_hidden() && IsHiddenPath(it->first)) continue;
       seen[name] = seen[name] || dir;
     }
     for (const auto& [name, dir] : seen) {
@@ -363,43 +417,55 @@ class FakeMaster final : public rpc::Master::Service {
     return grpc::Status::OK;
   }
 
-  grpc::Status FindLocation(grpc::ServerContext*, const rpc::FindLocationRequest* req, rpc::FindLocationResponse* resp) override {
+  grpc::Status FindLocation(grpc::ServerContext*,
+                            const rpc::FindLocationRequest* req,
+                            rpc::FindLocationResponse* resp) override {
     std::lock_guard<std::mutex> lock(mu_);
     auto it = files_.find(req->path());
-    if (it == files_.end()) return {grpc::StatusCode::NOT_FOUND, "no such file"};
-    for (uint64_t i = req->first_index(); i < it->second.size() && i < req->first_index() + req->count(); ++i) {
+    if (it == files_.end())
+      return {grpc::StatusCode::NOT_FOUND, "no such file"};
+    for (uint64_t i = req->first_index();
+         i < it->second.size() && i < req->first_index() + req->count(); ++i) {
       auto* chunk = resp->add_chunks();
       chunk->set_index(i);
       chunk->set_handle(it->second[i]);
       chunk->set_version(versions_[it->second[i]]);
-      for (auto* s : servers_) *chunk->add_replicas() = s->replica();
+      for (auto* s : servers_) *chunk->add_replicas() = s->Replica();
     }
     return grpc::Status::OK;
   }
 
-  grpc::Status FindLeaseHolder(grpc::ServerContext*, const rpc::FindLeaseHolderRequest* req, rpc::FindLeaseHolderResponse* resp) override {
+  grpc::Status FindLeaseHolder(grpc::ServerContext*,
+                               const rpc::FindLeaseHolderRequest* req,
+                               rpc::FindLeaseHolderResponse* resp) override {
     std::lock_guard<std::mutex> lock(mu_);
     auto it = files_.find(req->path());
-    if (it == files_.end()) return {grpc::StatusCode::NOT_FOUND, "no such file"};
-    if (req->index() >= it->second.size()) return {grpc::StatusCode::NOT_FOUND, "no such chunk index"};
+    if (it == files_.end())
+      return {grpc::StatusCode::NOT_FOUND, "no such file"};
+    if (req->index() >= it->second.size())
+      return {grpc::StatusCode::NOT_FOUND, "no such chunk index"};
     ++lease_requests;
     resp->set_code(rpc::OK);
     resp->set_handle(it->second[req->index()]);
     resp->set_version(versions_[it->second[req->index()]]);
-    *resp->mutable_primary() = servers_[0]->replica();
-    for (size_t i = 1; i < servers_.size(); ++i) *resp->add_secondaries() = servers_[i]->replica();
+    *resp->mutable_primary() = servers_[0]->Replica();
+    for (size_t i = 1; i < servers_.size(); ++i)
+      *resp->add_secondaries() = servers_[i]->Replica();
     return grpc::Status::OK;
   }
 
-  grpc::Status AddChunk(grpc::ServerContext*, const rpc::AddChunkRequest* req, rpc::AddChunkResponse* resp) override {
+  grpc::Status AddChunk(grpc::ServerContext*, const rpc::AddChunkRequest* req,
+                        rpc::AddChunkResponse* resp) override {
     std::lock_guard<std::mutex> lock(mu_);
     auto it = files_.find(req->path());
-    if (it == files_.end()) return {grpc::StatusCode::NOT_FOUND, "no such file"};
-    if (req->index() > it->second.size()) return {grpc::StatusCode::INVALID_ARGUMENT, "chunk index leaves a hole"};
+    if (it == files_.end())
+      return {grpc::StatusCode::NOT_FOUND, "no such file"};
+    if (req->index() > it->second.size())
+      return {grpc::StatusCode::INVALID_ARGUMENT, "chunk index leaves a hole"};
     if (req->index() == it->second.size()) {
       uint64_t handle = next_handle_++;
       versions_[handle] = 1;
-      for (auto* s : servers_) s->createChunk(handle, 1);
+      for (auto* s : servers_) s->CreateChunk(handle, 1);
       it->second.push_back(handle);
     }
     resp->set_code(rpc::OK);
@@ -407,44 +473,57 @@ class FakeMaster final : public rpc::Master::Service {
     chunk->set_index(req->index());
     chunk->set_handle(it->second[req->index()]);
     chunk->set_version(versions_[it->second[req->index()]]);
-    for (auto* s : servers_) *chunk->add_replicas() = s->replica();
+    for (auto* s : servers_) *chunk->add_replicas() = s->Replica();
     return grpc::Status::OK;
   }
 
-  grpc::Status HeartBeat(grpc::ServerContext*, const rpc::HeartBeatRequest*, rpc::HeartBeatResponse*) override {
+  grpc::Status HeartBeat(grpc::ServerContext*, const rpc::HeartBeatRequest*,
+                         rpc::HeartBeatResponse*) override {
     return grpc::Status::OK;
   }
 
   std::atomic<int> lease_requests{0};
 
  private:
-  grpc::Status moveLocked(const std::string& source, const std::string& target, bool erase_source) {
-    if (!isValidPath(source) || !isValidPath(target)) return {grpc::StatusCode::INVALID_ARGUMENT, "bad path"};
-    if (existsLocked(target)) return {grpc::StatusCode::ALREADY_EXISTS, "target exists"};
+  grpc::Status MoveLocked(const std::string& source, const std::string& target,
+                          bool erase_source) {
+    if (!IsValidPath(source) || !IsValidPath(target))
+      return {grpc::StatusCode::INVALID_ARGUMENT, "bad path"};
+    if (ExistsLocked(target))
+      return {grpc::StatusCode::ALREADY_EXISTS, "target exists"};
     std::vector<std::pair<std::string, std::vector<uint64_t>>> moved;
     if (files_.count(source)) {
       moved.emplace_back(target, files_[source]);
     } else {
-      std::string prefix = childPrefix(source);
-      for (auto it = files_.lower_bound(prefix); it != files_.end() && it->first.compare(0, prefix.size(), prefix) == 0; ++it) {
-        moved.emplace_back(childPrefix(target) + it->first.substr(prefix.size()), it->second);
+      std::string prefix = ChildPrefix(source);
+      for (auto it = files_.lower_bound(prefix);
+           it != files_.end() &&
+           it->first.compare(0, prefix.size(), prefix) == 0;
+           ++it) {
+        moved.emplace_back(
+            ChildPrefix(target) + it->first.substr(prefix.size()), it->second);
       }
-      if (moved.empty()) return {grpc::StatusCode::NOT_FOUND, "no such file or directory"};
+      if (moved.empty())
+        return {grpc::StatusCode::NOT_FOUND, "no such file or directory"};
     }
     if (erase_source) {
       files_.erase(source);
-      std::string prefix = childPrefix(source);
-      for (auto it = files_.lower_bound(prefix); it != files_.end() && it->first.compare(0, prefix.size(), prefix) == 0;) it = files_.erase(it);
+      std::string prefix = ChildPrefix(source);
+      for (auto it = files_.lower_bound(prefix);
+           it != files_.end() &&
+           it->first.compare(0, prefix.size(), prefix) == 0;)
+        it = files_.erase(it);
     }
     for (auto& [path, handles] : moved) files_[path] = handles;
     return grpc::Status::OK;
   }
 
-  bool existsLocked(const std::string& path) {
+  bool ExistsLocked(const std::string& path) {
     if (files_.count(path)) return true;
-    std::string prefix = childPrefix(path);
+    std::string prefix = ChildPrefix(path);
     auto it = files_.lower_bound(prefix);
-    return it != files_.end() && it->first.compare(0, prefix.size(), prefix) == 0;
+    return it != files_.end() &&
+           it->first.compare(0, prefix.size(), prefix) == 0;
   }
 
   std::vector<FakeChunkserver*> servers_;
@@ -460,30 +539,31 @@ class FakeCluster {
  public:
   explicit FakeCluster(int chunkservers = 3) {
     for (int i = 0; i < chunkservers; ++i) {
-      servers.push_back(std::make_unique<FakeChunkserver>("cs" + std::to_string(i)));
-      servers.back()->start();
+      servers.push_back(
+          std::make_unique<FakeChunkserver>("cs" + std::to_string(i)));
+      servers.back()->Start();
     }
     for (size_t i = 0; i < servers.size(); ++i) {
       std::vector<std::string> peers;
       for (size_t j = 0; j < servers.size(); ++j) {
-        if (j != i) peers.push_back(servers[j]->address());
+        if (j != i) peers.push_back(servers[j]->Address());
       }
-      servers[i]->setPeers(peers);
+      servers[i]->SetPeers(peers);
     }
     std::vector<FakeChunkserver*> raw;
     for (auto& s : servers) raw.push_back(s.get());
     master = std::make_unique<FakeMaster>(raw);
-    master->start();
+    master->Start();
   }
 
   ~FakeCluster() {
-    master->stop();
-    for (auto& s : servers) s->stop();
+    master->Stop();
+    for (auto& s : servers) s->Stop();
   }
 
-  Config clientConfig() const {
+  Config ClientConfig() const {
     Config config;
-    config.master_address = master->address();
+    config.master_address = master->Address();
     config.client_rpc_deadline = Millis(2000);
     config.lease_duration = Millis(1000);
     config.lease_clock_skew_margin = Millis(100);
@@ -500,4 +580,4 @@ class FakeCluster {
   std::unique_ptr<FakeMaster> master;
 };
 
-}
+}  // namespace gfs::testing

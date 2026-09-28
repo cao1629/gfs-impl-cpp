@@ -37,40 +37,46 @@ class MutationLock {
 
 class ChunkStore {
  public:
-  ChunkStore(std::string data_dir, uint64_t chunk_size, uint64_t checksum_block_size);
+  ChunkStore(std::string data_dir, uint64_t chunk_size,
+             uint64_t checksum_block_size);
   ~ChunkStore();
 
   ChunkStore(const ChunkStore&) = delete;
   ChunkStore& operator=(const ChunkStore&) = delete;
 
-  void scan();
+  void Scan();
 
-  rpc::ResultCode create(uint64_t handle, uint64_t version);
-  rpc::ResultCode createCopy(uint64_t handle, uint64_t version, uint64_t copy_from);
-  rpc::ResultCode read(uint64_t handle, uint64_t offset, uint64_t length, std::string* out);
-  rpc::ResultCode write(uint64_t handle, uint64_t offset, std::string_view data);
-  rpc::ResultCode pad(uint64_t handle, uint64_t from_offset);
-  rpc::ResultCode length(uint64_t handle, uint64_t* out);
-  std::optional<uint64_t> version(uint64_t handle);
-  rpc::ResultCode setVersion(uint64_t handle, uint64_t version);
-  bool contains(uint64_t handle);
-  bool remove(uint64_t handle);
-  std::vector<ChunkListing> list();
-  MutationLock lockForMutation(uint64_t handle);
+  rpc::ResultCode Create(uint64_t handle, uint64_t version);
+  rpc::ResultCode CreateCopy(uint64_t handle, uint64_t version,
+                             uint64_t copy_from);
+  rpc::ResultCode Read(uint64_t handle, uint64_t offset, uint64_t length,
+                       std::string* out);
+  rpc::ResultCode Write(uint64_t handle, uint64_t offset,
+                        std::string_view data);
+  rpc::ResultCode Pad(uint64_t handle, uint64_t from_offset);
+  rpc::ResultCode Length(uint64_t handle, uint64_t* out);
+  std::optional<uint64_t> Version(uint64_t handle);
+  rpc::ResultCode SetVersion(uint64_t handle, uint64_t version);
+  bool Contains(uint64_t handle);
+  bool Remove(uint64_t handle);
+  std::vector<ChunkListing> List();
+  MutationLock LockForMutation(uint64_t handle);
 
-  std::vector<uint64_t> corruptHandles();
-  void clearCorrupt(const std::vector<uint64_t>& handles);
+  std::vector<uint64_t> CorruptHandles();
+  void ClearCorrupt(const std::vector<uint64_t>& handles);
 
-  uint64_t chunkSize() const { return chunk_size_; }
-  uint64_t checksumBlockSize() const { return block_size_; }
-  std::string chunkPath(uint64_t handle) const;
-  std::string metaPath(uint64_t handle) const;
+  uint64_t ChunkSize() const { return chunk_size_; }
+  uint64_t ChecksumBlockSize() const { return block_size_; }
+  std::string ChunkPath(uint64_t handle) const;
+  std::string MetaPath(uint64_t handle) const;
 
  private:
-  std::shared_ptr<ChunkEntry> find(uint64_t handle);
-  std::shared_ptr<ChunkEntry> openEntry(uint64_t handle, bool create_new, uint64_t version);
-  bool recomputeBlocks(ChunkEntry& entry, uint64_t first_block, uint64_t last_block);
-  void markCorrupt(uint64_t handle);
+  std::shared_ptr<ChunkEntry> Find(uint64_t handle);
+  std::shared_ptr<ChunkEntry> OpenEntry(uint64_t handle, bool create_new,
+                                        uint64_t version);
+  bool RecomputeBlocks(ChunkEntry& entry, uint64_t first_block,
+                       uint64_t last_block);
+  void MarkCorrupt(uint64_t handle);
 
   std::string data_dir_;
   uint64_t chunk_size_;
@@ -81,6 +87,6 @@ class ChunkStore {
   std::unordered_set<uint64_t> corrupt_;
 };
 
-std::string loadOrCreateChunkserverId(const std::string& data_dir);
+std::string LoadOrCreateChunkserverId(const std::string& data_dir);
 
-}
+}  // namespace gfs

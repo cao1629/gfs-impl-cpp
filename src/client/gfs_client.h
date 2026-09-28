@@ -24,9 +24,12 @@ struct Status {
   ErrorCode code = ErrorCode::kOk;
   std::string message;
 
+  // NOLINTNEXTLINE(readability-identifier-naming)
   bool ok() const { return code == ErrorCode::kOk; }
   static Status Ok() { return {}; }
-  static Status Error(ErrorCode code, std::string message) { return {code, std::move(message)}; }
+  static Status Error(ErrorCode code, std::string message) {
+    return {code, std::move(message)};
+  }
 };
 
 struct FileInfo {
@@ -46,23 +49,26 @@ class Client {
   Client(const Client&) = delete;
   Client& operator=(const Client&) = delete;
 
-  Status create(const std::string& path);
-  Status remove(const std::string& path);
-  Status rename(const std::string& source, const std::string& target);
-  Status snapshot(const std::string& source, const std::string& target);
-  Status list(const std::string& directory, std::vector<DirEntry>* entries, bool include_hidden = false);
-  Status open(const std::string& path, FileInfo* info);
-  Status length(const std::string& path, uint64_t* length);
-  Status read(const std::string& path, uint64_t offset, uint64_t length, std::string* data);
-  Status write(const std::string& path, uint64_t offset, std::string_view data);
-  Status recordAppend(const std::string& path, std::string_view data, uint64_t* offset);
+  Status Create(const std::string& path);
+  Status Remove(const std::string& path);
+  Status Rename(const std::string& source, const std::string& target);
+  Status Snapshot(const std::string& source, const std::string& target);
+  Status List(const std::string& directory, std::vector<DirEntry>* entries,
+              bool include_hidden = false);
+  Status Open(const std::string& path, FileInfo* info);
+  Status Length(const std::string& path, uint64_t* length);
+  Status Read(const std::string& path, uint64_t offset, uint64_t length,
+              std::string* data);
+  Status Write(const std::string& path, uint64_t offset, std::string_view data);
+  Status RecordAppend(const std::string& path, std::string_view data,
+                      uint64_t* offset);
 
-  uint64_t chunkSize();
-  const std::string& clientId() const;
+  uint64_t ChunkSize();
+  const std::string& ClientId() const;
 
  private:
   class Impl;
   std::unique_ptr<Impl> impl_;
 };
 
-}
+}  // namespace gfs

@@ -32,17 +32,19 @@ struct RevokeResult {
 
 class LeaseManager {
  public:
-  LeaseManager(const Config& config, MasterState& state, ChunkserverRegistry& registry, OpLog& oplog);
+  LeaseManager(const Config& config, MasterState& state,
+               ChunkserverRegistry& registry, OpLog& oplog);
 
-  GrantResult grant(uint64_t handle);
-  void regrant(uint64_t handle);
-  void requestRegrant(uint64_t handle, WorkerPool& pool);
-  RevokeResult revoke(uint64_t handle);
+  GrantResult Grant(uint64_t handle);
+  void Regrant(uint64_t handle);
+  void RequestRegrant(uint64_t handle, WorkerPool& pool);
+  RevokeResult Revoke(uint64_t handle);
 
-  bool isValid(const ChunkMeta& meta, TimePoint now) const;
-  bool isPendingExpiry(const ChunkMeta& meta, TimePoint now) const;
-  TimePoint waitUntil(const ChunkMeta& meta) const;
-  bool extendLocked(ChunkMeta& meta, const std::string& primary, TimePoint now) const;
+  bool IsValid(const ChunkMeta& meta, TimePoint now) const;
+  bool IsPendingExpiry(const ChunkMeta& meta, TimePoint now) const;
+  TimePoint WaitUntil(const ChunkMeta& meta) const;
+  bool ExtendLocked(ChunkMeta& meta, const std::string& primary,
+                    TimePoint now) const;
 
  private:
   struct Attempt {
@@ -53,10 +55,10 @@ class LeaseManager {
     uint64_t seq = 0;
   };
 
-  Attempt prepareLocked(uint64_t handle, TimePoint now);
-  GrantResult grantSerialized(uint64_t handle);
-  void beginHandle(uint64_t handle);
-  void endHandle(uint64_t handle);
+  Attempt PrepareLocked(uint64_t handle, TimePoint now);
+  GrantResult GrantSerialized(uint64_t handle);
+  void BeginHandle(uint64_t handle);
+  void EndHandle(uint64_t handle);
 
   const Config& config_;
   MasterState& state_;
@@ -68,4 +70,4 @@ class LeaseManager {
   std::set<uint64_t> regrant_pending_;
 };
 
-}
+}  // namespace gfs

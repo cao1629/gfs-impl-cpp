@@ -16,20 +16,21 @@ struct MasterState {
   ChunkTable chunks;
   uint64_t next_handle = 1;
 
-  void applyCreate(const std::string& path);
-  void applyRename(const std::string& source, const std::string& target);
-  void applyRemove(const std::string& path);
-  void applyAllocHandle(uint64_t handle);
-  void applyAddChunk(const std::string& path, uint64_t index, uint64_t handle);
-  void applyReplaceChunk(const std::string& path, uint64_t index, uint64_t handle);
-  void applyBumpVersion(uint64_t handle, uint64_t version);
-  void applySnapshot(const std::string& source, const std::string& target);
-  void applyDropChunk(uint64_t handle);
-  void apply(const state::LogRecord& record);
+  void ApplyCreate(const std::string& path);
+  void ApplyRename(const std::string& source, const std::string& target);
+  void ApplyRemove(const std::string& path);
+  void ApplyAllocHandle(uint64_t handle);
+  void ApplyAddChunk(const std::string& path, uint64_t index, uint64_t handle);
+  void ApplyReplaceChunk(const std::string& path, uint64_t index,
+                         uint64_t handle);
+  void ApplyBumpVersion(uint64_t handle, uint64_t version);
+  void ApplySnapshot(const std::string& source, const std::string& target);
+  void ApplyDropChunk(uint64_t handle);
+  void Apply(const state::LogRecord& record);
 
-  state::Checkpoint toCheckpoint() const;
-  void load(const state::Checkpoint& checkpoint);
-  void recomputeRefcounts();
+  state::Checkpoint ToCheckpoint() const;
+  void Load(const state::Checkpoint& checkpoint);
+  void RecomputeRefcounts();
 };
 
-}
+}  // namespace gfs

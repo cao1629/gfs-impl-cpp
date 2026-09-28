@@ -19,14 +19,18 @@ namespace fs = std::filesystem;
 
 namespace {
 
-std::string numbered(const std::string& prefix, uint64_t number) {
+std::string Numbered(const std::string& prefix, uint64_t number) {
   char buf[32];
-  std::snprintf(buf, sizeof(buf), "%s%06llu", prefix.c_str(), static_cast<unsigned long long>(number));
+  std::snprintf(buf, sizeof(buf), "%s%06llu", prefix.c_str(),
+                static_cast<unsigned long long>(number));
   return buf;
 }
 
-bool parseNumbered(const std::string& name, const std::string& prefix, uint64_t* number) {
-  if (name.size() != prefix.size() + 6 || name.compare(0, prefix.size(), prefix) != 0) return false;
+bool ParseNumbered(const std::string& name, const std::string& prefix,
+                   uint64_t* number) {
+  if (name.size() != prefix.size() + 6 ||
+      name.compare(0, prefix.size(), prefix) != 0)
+    return false;
   uint64_t value = 0;
   for (size_t i = prefix.size(); i < name.size(); ++i) {
     if (name[i] < '0' || name[i] > '9') return false;
@@ -36,7 +40,7 @@ bool parseNumbered(const std::string& name, const std::string& prefix, uint64_t*
   return true;
 }
 
-bool writeWholeFile(const std::string& path, const std::string& bytes) {
+bool WriteWholeFile(const std::string& path, const std::string& bytes) {
   int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
   if (fd < 0) return false;
   size_t done = 0;
@@ -53,18 +57,19 @@ bool writeWholeFile(const std::string& path, const std::string& bytes) {
   return ok;
 }
 
+}  // namespace
+
+std::string Checkpointer::Path(const std::string& dir, uint64_t number) {
+  return dir + "/" + Numbered("checkpoint.", number);
 }
 
-std::string Checkpointer::path(const std::string& dir, uint64_t number) {
-  return dir + "/" + numbered("checkpoint.", number);
-}
-
-bool Checkpointer::write(const std::string& dir, uint64_t number, const state::Checkpoint& checkpoint) {
+bool Checkpointer::Write(const std::string& dir, uint64_t number,
+                         const state::Checkpoint& checkpoint) {
   std::string payload;
   if (!checkpoint.SerializeToString(&payload)) return false;
-  std::string final_path = path(dir, number);
+  std::string final_path = Path(dir, number);
   std::string tmp_path = final_path + ".tmp";
-  if (!writeWholeFile(tmp_path, encodeRecord(payload))) {
+  if (!WriteWholeFile(tmp_path, EncodeRecord(payload))) {
     GFS_LOG_ERROR << "failed to write " << tmp_path;
     return false;
   }
@@ -77,28 +82,31 @@ bool Checkpointer::write(const std::string& dir, uint64_t number, const state::C
     ::fsync(dfd);
     ::close(dfd);
   }
-  GFS_LOG_INFO << "wrote " << final_path << " with " << checkpoint.files_size() << " files and " << checkpoint.chunks_size() << " chunks";
+  GFS_LOG_INFO << "wrote " << final_path << " with " << checkpoint.files_size()
+               << " files and " << checkpoint.chunks_size() << " chunks";
   return true;
 }
 
-std::vector<uint64_t> Checkpointer::list(const std::string& dir) {
+std::vector<uint64_t> Checkpointer::List(const std::string& dir) {
   std::vector<uint64_t> numbers;
   std::error_code ec;
   for (const auto& entry : fs::directory_iterator(dir, ec)) {
     uint64_t number = 0;
-    if (parseNumbered(entry.path().filename().string(), "checkpoint.", &number)) numbers.push_back(number);
+    if (ParseNumbered(entry.path().filename().string(), "checkpoint.", &number))
+      numbers.push_back(number);
   }
   std::sort(numbers.begin(), numbers.end());
   return numbers;
 }
 
-uint64_t Checkpointer::loadLatest(const std::string& dir, state::Checkpoint* checkpoint) {
-  auto numbers = list(dir);
+uint64_t Checkpointer::LoadLatest(const std::string& dir,
+                                  state::Checkpoint* checkpoint) {
+  auto numbers = List(dir);
   for (auto it = numbers.rbegin(); it != numbers.rend(); ++it) {
-    std::ifstream in(path(dir, *it), std::ios::binary);
+    std::ifstream in(Path(dir, *it), std::ios::binary);
     std::stringstream buffer;
     buffer << in.rdbuf();
-    DecodedRecords decoded = decodeRecords(buffer.str());
+    DecodedRecords decoded = DecodeRecords(buffer.str());
     if (decoded.payloads.size() != 1 || decoded.torn_tail) {
       GFS_LOG_WARN << "ignoring damaged checkpoint " << *it;
       continue;
@@ -112,15 +120,16 @@ uint64_t Checkpointer::loadLatest(const std::string& dir, state::Checkpoint* che
   return 0;
 }
 
-void Checkpointer::prune(const std::string& dir, uint64_t newest, size_t keep) {
+void Checkpointer::Prune(const std::string& dir, uint64_t newest, size_t keep) {
   std::error_code ec;
-  for (uint64_t segment : OpLog::listSegments(dir)) {
-    if (segment < newest) fs::remove(OpLog::segmentPath(dir, segment), ec);
+  for (uint64_t segment : OpLog::ListSegments(dir)) {
+    if (segment < newest) fs::remove(OpLog::SegmentPath(dir, segment), ec);
   }
-  auto numbers = list(dir);
+  auto numbers = List(dir);
   if (numbers.size() > keep) {
-    for (size_t i = 0; i + keep < numbers.size(); ++i) fs::remove(path(dir, numbers[i]), ec);
+    for (size_t i = 0; i + keep < numbers.size(); ++i)
+      fs::remove(Path(dir, numbers[i]), ec);
   }
 }
 
-}
+}  // namespace gfs

@@ -8,31 +8,33 @@ namespace gfs {
 
 namespace {
 
-size_t depthOf(const std::string& path) {
+size_t DepthOf(const std::string& path) {
   if (path == "/") return 0;
   return static_cast<size_t>(std::count(path.begin(), path.end(), '/'));
 }
 
-bool before(const LockRequest& a, const LockRequest& b) {
-  size_t da = depthOf(a.path), db = depthOf(b.path);
+bool Before(const LockRequest& a, const LockRequest& b) {
+  size_t da = DepthOf(a.path), db = DepthOf(b.path);
   if (da != db) return da < db;
   return a.path < b.path;
 }
 
-}
+}  // namespace
 
-LockSet::LockSet(LockTable* table, std::vector<LockRequest> held) : table_(table), held_(std::move(held)) {}
+LockSet::LockSet(LockTable* table, std::vector<LockRequest> held)
+    : table_(table), held_(std::move(held)) {}
 
-LockSet::~LockSet() { release(); }
+LockSet::~LockSet() { Release(); }
 
-LockSet::LockSet(LockSet&& other) noexcept : table_(other.table_), held_(std::move(other.held_)) {
+LockSet::LockSet(LockSet&& other) noexcept
+    : table_(other.table_), held_(std::move(other.held_)) {
   other.table_ = nullptr;
   other.held_.clear();
 }
 
 LockSet& LockSet::operator=(LockSet&& other) noexcept {
   if (this != &other) {
-    release();
+    Release();
     table_ = other.table_;
     held_ = std::move(other.held_);
     other.table_ = nullptr;
@@ -41,14 +43,15 @@ LockSet& LockSet::operator=(LockSet&& other) noexcept {
   return *this;
 }
 
-void LockSet::release() {
-  if (table_ != nullptr && !held_.empty()) table_->release(held_);
+void LockSet::Release() {
+  if (table_ != nullptr && !held_.empty()) table_->Release(held_);
   held_.clear();
   table_ = nullptr;
 }
 
-std::vector<LockRequest> LockTable::normalize(std::vector<LockRequest> requests) {
-  std::sort(requests.begin(), requests.end(), before);
+std::vector<LockRequest> LockTable::Normalize(
+    std::vector<LockRequest> requests) {
+  std::sort(requests.begin(), requests.end(), Before);
   std::vector<LockRequest> out;
   for (auto& r : requests) {
     if (!out.empty() && out.back().path == r.path) {
@@ -60,44 +63,50 @@ std::vector<LockRequest> LockTable::normalize(std::vector<LockRequest> requests)
   return out;
 }
 
-std::vector<LockRequest> LockTable::forPath(std::string_view path, LockMode leaf) {
+std::vector<LockRequest> LockTable::ForPath(std::string_view path,
+                                            LockMode leaf) {
   std::vector<LockRequest> out;
-  for (auto& ancestor : ancestorsOf(path)) out.push_back({ancestor, LockMode::kRead});
+  for (auto& ancestor : AncestorsOf(path))
+    out.push_back({ancestor, LockMode::kRead});
   out.push_back({std::string(path), leaf});
   return out;
 }
 
-std::vector<LockRequest> LockTable::forPaths(std::string_view first, LockMode first_mode, std::string_view second, LockMode second_mode) {
-  auto out = forPath(first, first_mode);
-  auto more = forPath(second, second_mode);
+std::vector<LockRequest> LockTable::ForPaths(std::string_view first,
+                                             LockMode first_mode,
+                                             std::string_view second,
+                                             LockMode second_mode) {
+  auto out = ForPath(first, first_mode);
+  auto more = ForPath(second, second_mode);
   out.insert(out.end(), more.begin(), more.end());
   return out;
 }
 
-LockSet LockTable::acquire(std::vector<LockRequest> requests) {
-  auto ordered = normalize(std::move(requests));
-  for (auto& r : ordered) lockOne(r);
+LockSet LockTable::Acquire(std::vector<LockRequest> requests) {
+  auto ordered = Normalize(std::move(requests));
+  for (auto& r : ordered) LockOne(r);
   return LockSet(this, std::move(ordered));
 }
 
-void LockTable::release(const std::vector<LockRequest>& held) {
-  for (auto it = held.rbegin(); it != held.rend(); ++it) unlockOne(*it);
+void LockTable::Release(const std::vector<LockRequest>& held) {
+  for (auto it = held.rbegin(); it != held.rend(); ++it) UnlockOne(*it);
 }
 
-size_t LockTable::activeEntries() {
+size_t LockTable::ActiveEntries() {
   std::lock_guard<std::mutex> lock(mutex_);
   return entries_.size();
 }
 
-LockTable::Entry& LockTable::entryLocked(const std::string& path) {
+LockTable::Entry& LockTable::EntryLocked(const std::string& path) {
   auto it = entries_.find(path);
-  if (it == entries_.end()) it = entries_.emplace(path, std::make_unique<Entry>()).first;
+  if (it == entries_.end())
+    it = entries_.emplace(path, std::make_unique<Entry>()).first;
   return *it->second;
 }
 
-void LockTable::lockOne(const LockRequest& request) {
+void LockTable::LockOne(const LockRequest& request) {
   std::unique_lock<std::mutex> lock(mutex_);
-  Entry& entry = entryLocked(request.path);
+  Entry& entry = EntryLocked(request.path);
   entry.refs += 1;
   if (request.mode == LockMode::kWrite) {
     while (entry.readers > 0 || entry.writer) {
@@ -112,7 +121,7 @@ void LockTable::lockOne(const LockRequest& request) {
   }
 }
 
-void LockTable::unlockOne(const LockRequest& request) {
+void LockTable::UnlockOne(const LockRequest& request) {
   std::lock_guard<std::mutex> lock(mutex_);
   auto it = entries_.find(request.path);
   if (it == entries_.end()) return;
@@ -127,4 +136,4 @@ void LockTable::unlockOne(const LockRequest& request) {
   if (entry.refs == 0) entries_.erase(it);
 }
 
-}
+}  // namespace gfs
