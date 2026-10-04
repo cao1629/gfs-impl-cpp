@@ -38,7 +38,7 @@ class LeaseManager {
   GrantResult Grant(uint64_t handle);
   void Regrant(uint64_t handle);
   void RequestRegrant(uint64_t handle, WorkerPool& pool);
-  RevokeResult Revoke(uint64_t handle);
+  RevokeResult Revoke(uint64_t handle, std::set<std::string>& unreachable);
 
   bool IsValid(const ChunkMeta& meta, TimePoint now) const;
   bool IsPendingExpiry(const ChunkMeta& meta, TimePoint now) const;

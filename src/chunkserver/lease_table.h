@@ -29,7 +29,7 @@ class LeaseTable {
   void Revoke(uint64_t handle);
   LeaseCheck Check(uint64_t handle, LeaseInfo* info);
   uint64_t NextSerial(uint64_t handle);
-  std::vector<uint64_t> HeldHandles();
+  std::vector<uint64_t> HandlesToExtend();
 
  private:
   struct Slot {
@@ -37,6 +37,7 @@ class LeaseTable {
     TimePoint expiry;
     std::vector<rpc::Replica> secondaries;
     uint64_t next_serial = 1;
+    bool mutated_since_renewal = false;
   };
 
   std::mutex mutex_;

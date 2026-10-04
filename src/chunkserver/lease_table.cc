@@ -11,6 +11,7 @@ void LeaseTable::Grant(uint64_t handle, Millis lease,
   slot.held = true;
   slot.expiry = Now() + lease - skew_margin_;
   slot.secondaries = std::move(secondaries);
+  slot.mutated_since_renewal = false;
 }
 
 bool LeaseTable::Extend(uint64_t handle, Millis lease) {
@@ -18,6 +19,7 @@ bool LeaseTable::Extend(uint64_t handle, Millis lease) {
   auto it = slots_.find(handle);
   if (it == slots_.end() || !it->second.held) return false;
   it->second.expiry = Now() + lease - skew_margin_;
+  it->second.mutated_since_renewal = false;
   return true;
 }
 
@@ -43,15 +45,18 @@ LeaseCheck LeaseTable::Check(uint64_t handle, LeaseInfo* info) {
 
 uint64_t LeaseTable::NextSerial(uint64_t handle) {
   std::lock_guard<std::mutex> lock(mutex_);
-  return slots_[handle].next_serial++;
+  Slot& slot = slots_[handle];
+  slot.mutated_since_renewal = true;
+  return slot.next_serial++;
 }
 
-std::vector<uint64_t> LeaseTable::HeldHandles() {
+std::vector<uint64_t> LeaseTable::HandlesToExtend() {
   std::lock_guard<std::mutex> lock(mutex_);
   std::vector<uint64_t> out;
   TimePoint t = Now();
   for (const auto& [handle, slot] : slots_) {
-    if (slot.held && t <= slot.expiry) out.push_back(handle);
+    if (slot.held && t <= slot.expiry && slot.mutated_since_renewal)
+      out.push_back(handle);
   }
   return out;
 }

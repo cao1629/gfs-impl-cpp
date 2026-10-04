@@ -202,6 +202,16 @@ TEST(ClientLibrary, StatusMapping) {
   EXPECT_EQ(client.Create("/a/b").code, ErrorCode::kInvalidArgument);
 }
 
+TEST(ClientLibrary, SnapshotWaitsOutTheMastersLeaseWait) {
+  FakeCluster cluster;
+  Config config = cluster.ClientConfig();
+  config.client_rpc_deadline = Millis(300);
+  Client client(config);
+  ASSERT_TRUE(client.Create("/a/b").ok());
+  cluster.master->SetSnapshotDelay(Millis(800));
+  EXPECT_TRUE(client.Snapshot("/a", "/s").ok());
+}
+
 TEST(ClientLibrary, ListRenameSnapshotRoundTrip) {
   FakeCluster cluster;
   Client client(cluster.ClientConfig());

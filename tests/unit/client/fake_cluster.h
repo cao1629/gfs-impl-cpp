@@ -7,6 +7,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "common/config.h"
@@ -389,9 +390,12 @@ class FakeMaster final : public rpc::Master::Service {
 
   grpc::Status Snapshot(grpc::ServerContext*, const rpc::SnapshotRequest* req,
                         rpc::SnapshotResponse*) override {
+    std::this_thread::sleep_for(Millis(snapshot_delay_ms_.load()));
     std::lock_guard<std::mutex> lock(mu_);
     return MoveLocked(req->source(), req->target(), false);
   }
+
+  void SetSnapshotDelay(Millis delay) { snapshot_delay_ms_ = delay.count(); }
 
   grpc::Status FindMatchingFiles(
       grpc::ServerContext*, const rpc::FindMatchingFilesRequest* req,
@@ -533,6 +537,7 @@ class FakeMaster final : public rpc::Master::Service {
   std::map<std::string, std::vector<uint64_t>> files_;
   std::map<uint64_t, uint64_t> versions_;
   uint64_t next_handle_ = 1;
+  std::atomic<int64_t> snapshot_delay_ms_{0};
 };
 
 class FakeCluster {

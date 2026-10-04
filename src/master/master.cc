@@ -304,6 +304,7 @@ void Master::Remove(const rpc::DeleteRequest& req, rpc::DeleteResponse*,
 
 void Master::RevokeLeasesOn(const std::vector<uint64_t>& handles,
                             TimePoint* wait_until) {
+  std::set<std::string> unreachable;
   for (uint64_t handle : handles) {
     bool live = false;
     {
@@ -312,7 +313,7 @@ void Master::RevokeLeasesOn(const std::vector<uint64_t>& handles,
       live = meta != nullptr && meta->lease.has_value();
     }
     if (!live) continue;
-    RevokeResult result = leases_.Revoke(handle);
+    RevokeResult result = leases_.Revoke(handle, unreachable);
     if (result.had_lease && !result.acked && wait_until != nullptr) {
       TimePoint until =
           result.expiry + config_.lease_clock_skew_margin + Millis(1);
