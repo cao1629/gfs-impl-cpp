@@ -103,10 +103,19 @@ class FakeChunkserver final : public rpc::Chunkserver::Service {
                              const rpc::UpdateVersionRequest* req,
                              rpc::UpdateVersionResponse* resp) override {
     std::lock_guard<std::mutex> lock(mutex_);
-    chunks_[req->handle()] = req->version();
     updates_.push_back(*req);
+    if (fail_updates_) {
+      resp->set_code(rpc::FAILED);
+      return grpc::Status::OK;
+    }
+    chunks_[req->handle()] = req->version();
     resp->set_code(rpc::OK);
     return grpc::Status::OK;
+  }
+
+  void FailUpdates(bool fail) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    fail_updates_ = fail;
   }
 
   rpc::HeartBeatResponse Heartbeat(rpc::Master::Stub& master) {
@@ -200,6 +209,7 @@ class FakeChunkserver final : public rpc::Chunkserver::Service {
   std::vector<rpc::GrantLeaseRequest> grants_;
   std::vector<rpc::RevokeLeaseRequest> revokes_;
   std::vector<rpc::UpdateVersionRequest> updates_;
+  bool fail_updates_ = false;
   std::atomic<bool> running_{false};
   std::thread heartbeat_thread_;
 };
@@ -498,6 +508,35 @@ TEST_F(MasterTest, AddChunkAndLeaseGrant) {
   std::lock_guard<std::mutex> lock(state.mutex);
   ASSERT_TRUE(state.chunks.Find(handle)->lease.has_value());
   EXPECT_GT(state.chunks.Find(handle)->lease->expiry, Now() + Millis(1500));
+}
+
+TEST_F(MasterTest, GrantResendsThePrimaryAListWithoutAFailedSecondary) {
+  StartFakes(3);
+  auto& h = *harness_;
+  ASSERT_TRUE(h.Create("/f").ok());
+  ASSERT_EQ(h.AddChunk("/f", 0).code(), rpc::OK);
+  FakeChunkserver* failing = FakeById("cs2");
+  ASSERT_NE(failing, nullptr);
+  failing->StopHeartbeats();
+  failing->FailUpdates(true);
+
+  grpc::Status status;
+  auto lease = h.FindLeaseHolder("/f", 0, &status);
+  ASSERT_TRUE(status.ok());
+  ASSERT_EQ(lease.code(), rpc::OK);
+  EXPECT_EQ(lease.version(), 2u);
+  ASSERT_EQ(lease.secondaries_size(), 1);
+  EXPECT_NE(lease.secondaries(0).chunkserver_id(), failing->Id());
+  FakeChunkserver* primary = FakeById(lease.primary().chunkserver_id());
+  ASSERT_NE(primary, nullptr);
+  ASSERT_NE(primary, failing);
+  auto grants = primary->Grants();
+  ASSERT_EQ(grants.size(), 2u);
+  EXPECT_EQ(grants[0].secondaries_size(), 2);
+  EXPECT_EQ(grants[1].version(), 2u);
+  ASSERT_EQ(grants[1].secondaries_size(), 1);
+  EXPECT_EQ(grants[1].secondaries(0).chunkserver_id(),
+            lease.secondaries(0).chunkserver_id());
 }
 
 TEST_F(MasterTest, StaleReplicaIsExcludedAndToldToDelete) {

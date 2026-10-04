@@ -267,6 +267,9 @@ rpc::RecordAppendResponse Chunkserver::RecordAppend(
     if (auto failed = ForwardMutation(apply, prepared.lease.secondaries)) {
       GFS_LOG_WARN << "padding chunk " << HandleToHex(req.handle())
                    << " did not reach " << *failed;
+      resp.set_code(rpc::FAILED);
+      resp.set_failed_at(*failed);
+      return resp;
     }
     resp.set_code(rpc::RETRY_NEXT_CHUNK);
     return resp;
@@ -418,7 +421,8 @@ bool Chunkserver::SendHeartbeat() {
     report->set_version(c.version);
     report->set_length(c.length);
   }
-  for (uint64_t h : leases_.HeldHandles()) req.add_lease_extension_requests(h);
+  for (uint64_t h : leases_.HandlesToExtend())
+    req.add_lease_extension_requests(h);
   std::vector<uint64_t> corrupt = store_->CorruptHandles();
   for (uint64_t h : corrupt) req.add_corrupt(h);
 

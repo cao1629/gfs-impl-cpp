@@ -151,7 +151,7 @@ GrantResult LeaseManager::GrantSerialized(uint64_t handle) {
                      << ", dropping it";
         state_.chunks.RemoveLocation(handle, id);
       }
-      if (failed.count(attempt.primary) > 0) continue;
+      if (!failed.empty()) continue;
       meta->version = std::max(meta->version, attempt.version);
       state::LogRecord record;
       record.mutable_bump_version()->set_handle(handle);
