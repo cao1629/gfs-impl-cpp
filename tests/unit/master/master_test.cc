@@ -92,11 +92,21 @@ class FakeChunkserver final : public rpc::Chunkserver::Service {
   grpc::Status RevokeLease(grpc::ServerContext*,
                            const rpc::RevokeLeaseRequest* req,
                            rpc::RevokeLeaseResponse* resp) override {
-    std::lock_guard<std::mutex> lock(mutex_);
-    revokes_.push_back(*req);
-    held_leases_.erase(req->handle());
+    Millis delay{0};
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      revokes_.push_back(*req);
+      held_leases_.erase(req->handle());
+      delay = revoke_delay_;
+    }
+    std::this_thread::sleep_for(delay);
     resp->set_code(rpc::OK);
     return grpc::Status::OK;
+  }
+
+  void DelayRevokes(Millis delay) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    revoke_delay_ = delay;
   }
 
   grpc::Status UpdateVersion(grpc::ServerContext*,
@@ -210,6 +220,7 @@ class FakeChunkserver final : public rpc::Chunkserver::Service {
   std::vector<rpc::RevokeLeaseRequest> revokes_;
   std::vector<rpc::UpdateVersionRequest> updates_;
   bool fail_updates_ = false;
+  Millis revoke_delay_{0};
   std::atomic<bool> running_{false};
   std::thread heartbeat_thread_;
 };
@@ -592,6 +603,27 @@ TEST_F(MasterTest,
   EXPECT_EQ(replacement.version(), 4u);
   EXPECT_GT(elapsed.count(), 500);
   EXPECT_LT(elapsed.count(), 3000);
+}
+
+TEST_F(MasterTest, SnapshotStopsRevokingAtAPrimaryThatDidNotAnswer) {
+  StartFakes(3);
+  auto& h = *harness_;
+  std::set<std::string> primaries;
+  for (const char* name : {"a", "b", "c"}) {
+    std::string path = std::string("/dir/") + name;
+    ASSERT_TRUE(h.Create(path).ok());
+    ASSERT_EQ(h.AddChunk(path, 0).code(), rpc::OK);
+    auto lease = h.FindLeaseHolder(path, 0);
+    ASSERT_EQ(lease.code(), rpc::OK);
+    primaries.insert(lease.primary().chunkserver_id());
+  }
+  ASSERT_EQ(primaries.size(), 1u);
+  FakeChunkserver* primary = FakeById(*primaries.begin());
+  ASSERT_NE(primary, nullptr);
+  primary->DelayRevokes(Millis(1500));
+
+  ASSERT_TRUE(h.Snapshot("/dir", "/copy").ok());
+  EXPECT_EQ(primary->Revokes().size(), 1u);
 }
 
 TEST_F(MasterTest, SnapshotRevokesThenCopiesOnWrite) {

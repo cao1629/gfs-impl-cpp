@@ -216,7 +216,8 @@ void LeaseManager::Regrant(uint64_t handle) {
   EndHandle(handle);
 }
 
-RevokeResult LeaseManager::Revoke(uint64_t handle) {
+RevokeResult LeaseManager::Revoke(uint64_t handle,
+                                  std::set<std::string>& unreachable) {
   RevokeResult result;
   std::string primary;
   {
@@ -232,13 +233,17 @@ RevokeResult LeaseManager::Revoke(uint64_t handle) {
     meta->lease->revoked = true;
     primary = meta->lease->primary;
   }
-  rpc::RevokeLeaseRequest req;
-  req.set_handle(handle);
-  rpc::RevokeLeaseResponse resp;
-  auto stub = registry_.Stub(primary);
-  auto ctx = registry_.Context();
-  bool ok = stub && stub->RevokeLease(ctx.get(), req, &resp).ok() &&
-            resp.code() == rpc::OK;
+  bool ok = false;
+  if (unreachable.count(primary) == 0) {
+    rpc::RevokeLeaseRequest req;
+    req.set_handle(handle);
+    rpc::RevokeLeaseResponse resp;
+    auto stub = registry_.Stub(primary);
+    auto ctx = registry_.Context();
+    ok = stub && stub->RevokeLease(ctx.get(), req, &resp).ok() &&
+         resp.code() == rpc::OK;
+    if (!ok) unreachable.insert(primary);
+  }
   std::lock_guard<std::mutex> lock(state_.mutex);
   ChunkMeta* meta = state_.chunks.Find(handle);
   if (ok && meta != nullptr && meta->lease && meta->lease->primary == primary) {
