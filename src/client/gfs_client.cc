@@ -120,8 +120,8 @@ class Client::Impl {
     req.set_source(source);
     req.set_target(target);
     rpc::SnapshotResponse resp;
-    Status status =
-        FromGrpc(CallMaster(&rpc::Master::Stub::Snapshot, req, &resp));
+    Status status = FromGrpc(CallMaster(&rpc::Master::Stub::Snapshot, req,
+                                        &resp, LeaseWaitDeadline()));
     ForgetFile(source);
     return status;
   }
@@ -471,11 +471,8 @@ class Client::Impl {
     req.set_path(path);
     req.set_index(index);
     rpc::FindLeaseHolderResponse resp;
-    Millis timeout = config_.lease_duration +
-                     2 * config_.lease_clock_skew_margin +
-                     config_.client_rpc_deadline;
-    Status status = FromGrpc(
-        CallMaster(&rpc::Master::Stub::FindLeaseHolder, req, &resp, timeout));
+    Status status = FromGrpc(CallMaster(&rpc::Master::Stub::FindLeaseHolder,
+                                        req, &resp, LeaseWaitDeadline()));
     if (!status.ok()) return status;
     if (resp.code() != rpc::OK)
       return FromResultCode(resp.code(), "find lease holder for chunk " +
@@ -533,6 +530,11 @@ class Client::Impl {
               ": " + rpc::ResultCode_Name(resp.code()));
     }
     return Status::Ok();
+  }
+
+  Millis LeaseWaitDeadline() const {
+    return config_.lease_duration + 2 * config_.lease_clock_skew_margin +
+           config_.client_rpc_deadline;
   }
 
   Millis Backoff(uint32_t attempt) const {

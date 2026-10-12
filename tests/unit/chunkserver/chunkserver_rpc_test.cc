@@ -328,6 +328,37 @@ TEST_F(ChunkserverRpcTest, CorruptReplicaReportsChecksumMismatch) {
   EXPECT_EQ(servers_[1]->store->CorruptHandles(), std::vector<uint64_t>{1});
 }
 
+TEST_F(ChunkserverRpcTest, PaddingThatMissesASecondaryFailsAndTheRetryPadsIt) {
+  std::string first = Pattern(100 * 1024, 'e');
+  ASSERT_EQ(Push(first, 70).code(), rpc::OK);
+  ASSERT_EQ(Append(1, 2, 70).code(), rpc::OK);
+
+  auto set_version = [&](uint64_t version) {
+    grpc::ClientContext ctx;
+    rpc::UpdateVersionRequest req;
+    req.set_handle(1);
+    req.set_version(version);
+    rpc::UpdateVersionResponse resp;
+    ASSERT_TRUE(servers_[2]->stub->UpdateVersion(&ctx, req, &resp).ok());
+    ASSERT_EQ(resp.code(), rpc::OK);
+  };
+  set_version(3);
+  ASSERT_EQ(Push(Pattern(kChunk, 'f'), 71, {0}).code(), rpc::OK);
+  auto padded = Append(1, 2, 71);
+  EXPECT_EQ(padded.code(), rpc::FAILED);
+  EXPECT_EQ(padded.failed_at(), servers_[2]->id);
+  EXPECT_EQ(Length(1, 1), kChunk);
+  EXPECT_EQ(Length(2, 1), first.size());
+
+  set_version(2);
+  ASSERT_EQ(Push("tiny", 72, {0}).code(), rpc::OK);
+  EXPECT_EQ(Append(1, 2, 72).code(), rpc::RETRY_NEXT_CHUNK);
+  EXPECT_EQ(Length(2, 1), kChunk);
+  auto tail = Read(2, 1, 2, kChunk - 8, 8);
+  ASSERT_EQ(tail.code(), rpc::OK);
+  EXPECT_EQ(tail.data(), std::string(8, '\0'));
+}
+
 TEST_F(ChunkserverRpcTest, PushChainBreaksAtADeadHop) {
   rpc::Replica dead;
   dead.set_chunkserver_id("dead-server");
